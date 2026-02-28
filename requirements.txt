@@ -1,0 +1,28 @@
+# PDF Processing Dependencies
+pdf2image==1.17.0           # Converts PDF to images (uses Poppler)
+pytesseract==0.3.10         # Python wrapper for Tesseract OCR
+Pillow==10.2.0              # Image manipulation
+opencv-python==4.9.0.80     # Your preprocessing (cv2)
+PyPDF2==3.0.1               # Read PDF metadata (page count)
+numpy==1.26.3               # Required by OpenCV
+
+# Queue & Messaging
+redis==5.0.1                # Redis client for queue
+
+# File Watching
+watchdog==4.0.0             # Monitor folder for new PDFs
+
+# Configuration & Environment
+python-dotenv==1.0.1        # Load .env files
+
+# Data Validation
+pydantic==2.6.1             # Data validation and models
+
+# Utilities
+python-dateutil==2.8.2      # Date/time utilities
+
+
+# Regex and ollamas 
+regex>=2023.10.3
+requests
+sqlite-utils

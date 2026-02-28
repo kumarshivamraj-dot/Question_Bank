@@ -1,0 +1,42 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - pyq-network
+
+  pdf-processor:
+    build:
+      context: .
+      dockerfile: ./pdf_processing/Dockerfile
+    volumes:
+      - ./.cursor:/app/.cursor
+      - ./data/input:/data/input
+      - ./data/pngs:/data/pngs
+      - ./data/processing:/data/processing
+      - ./data/processed:/data/processed
+      - ./data/failed:/data/failed
+      - ./shared:/app/shared
+      - ./pdf_processing:/app
+      - ./ai_processor:/app/ai_processor
+    environment:
+      - OCR_QUEUE_NAME=ocr_results_queue
+      - INPUT_DIR=/data/input
+      - LOG_LEVEL=INFO
+      - OLLAMA_BASE_URL=http://ollama:11434
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    networks:
+      - pyq-network
+volumes:
+  ollama_data:
+
+networks:
+  pyq-network:
+    driver: bridge
