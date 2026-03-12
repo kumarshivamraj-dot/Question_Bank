@@ -1,0 +1,2 @@
+"""Unified study indexing pipeline."""
+

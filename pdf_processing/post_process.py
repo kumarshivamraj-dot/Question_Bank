@@ -39,6 +39,8 @@ def _is_noise_line(line: str) -> bool:
 def _detect_headers(pages: List[str], threshold: float = 0.35) -> set:
     counter = Counter()
     total = len(pages)
+    if total == 0:
+        return set()
 
     for page in pages:
         seen = set()

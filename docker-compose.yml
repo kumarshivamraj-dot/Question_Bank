@@ -29,6 +29,39 @@ services:
       - INPUT_DIR=/data/input
       - LOG_LEVEL=INFO
       - OLLAMA_BASE_URL=http://ollama:11434
+      # Sonnet = best quality/cost; Haiku = cheapest (e.g. claude-3-5-haiku-20241022)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_ENABLED=${CLAUDE_ENABLED:-0}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-20250514}
+      # Smaller images = fewer tokens (default 1568; try 1024 for lower bill)
+      - CLAUDE_MAX_IMAGE_DIMENSION=${CLAUDE_MAX_IMAGE_DIMENSION:-1568}
+      - CLAUDE_MAX_CONCURRENT=${CLAUDE_MAX_CONCURRENT:-4}
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    networks:
+      - pyq-network
+
+  study-web:
+    build:
+      context: .
+      dockerfile: ./study_web/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./study_pipeline:/app/study_pipeline
+      - ./study_web:/app/study_web
+      - ./ai_processor:/app/ai_processor
+    environment:
+      - STUDY_DB_PATH=/app/data/processed/study_index.db
+      - STUDY_EMBEDDING_PROVIDER=${STUDY_EMBEDDING_PROVIDER:-hashing}
+      - STUDY_OLLAMA_MODEL=${STUDY_OLLAMA_MODEL:-nomic-embed-text}
+      - STUDY_OLLAMA_URL=http://ollama:11434
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_ENABLED=${CLAUDE_ENABLED:-0}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-20250514}
+      - CLAUDE_MAX_IMAGE_DIMENSION=${CLAUDE_MAX_IMAGE_DIMENSION:-1568}
     restart: unless-stopped
     depends_on:
       - ollama

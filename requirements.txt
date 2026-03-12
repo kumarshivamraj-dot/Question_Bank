@@ -4,6 +4,8 @@ pytesseract==0.3.10         # Python wrapper for Tesseract OCR
 Pillow==10.2.0              # Image manipulation
 opencv-python==4.9.0.80     # Your preprocessing (cv2)
 PyPDF2==3.0.1               # Read PDF metadata (page count)
+PyMuPDF==1.25.3             # Native PDF text extraction + page rendering
+python-pptx==0.6.23         # Extract class PPT/PPTX text
 numpy==1.26.3               # Required by OpenCV
 
 # Queue & Messaging
@@ -14,6 +16,9 @@ watchdog==4.0.0             # Monitor folder for new PDFs
 
 # Configuration & Environment
 python-dotenv==1.0.1        # Load .env files
+fastapi==0.116.1            # Web API + UI
+uvicorn==0.35.0             # ASGI server
+python-multipart==0.0.20    # File uploads for FastAPI
 
 # Data Validation
 pydantic==2.6.1             # Data validation and models
@@ -26,3 +31,4 @@ python-dateutil==2.8.2      # Date/time utilities
 regex>=2023.10.3
 requests
 sqlite-utils
+anthropic>=0.39.0
