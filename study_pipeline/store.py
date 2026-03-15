@@ -369,7 +369,12 @@ class StudyStore:
 
         ranked = sorted(
             aggregate.values(),
-            key=lambda item: (item["score"], item["question_count"], item["chunk_count"]),
+            key=lambda item: (
+                item["question_count"],
+                item["chunk_count"],
+                item["score"],
+                str(item["topic"]).lower(),
+            ),
             reverse=True,
         )[:limit]
         return [
@@ -381,7 +386,7 @@ class StudyStore:
                 "examples": item["examples"],
             }
             for item in ranked
-            if canonicalize_topic(str(item["topic"]))
+            if canonicalize_topic(str(item["topic"])) and int(item["question_count"]) > 0
         ]
 
     def subject_questions(self, subject: str, limit: int = 100) -> list[sqlite3.Row]:
@@ -398,6 +403,39 @@ class StudyStore:
             """,
             (subject, limit),
         ).fetchall()
+
+    def questions_for_topic(
+        self,
+        subject: str,
+        topic: str,
+        limit: int = 100,
+    ) -> list[sqlite3.Row]:
+        canonical_topic = canonicalize_topic(topic)
+        if not canonical_topic:
+            return []
+
+        rows = self.connection.execute(
+            """
+            SELECT documents.name, documents.path, documents.subject, documents.source_type,
+                   questions.page_number, questions.question_number, questions.text,
+                   questions.topics_json
+            FROM questions
+            JOIN documents ON documents.id = questions.document_id
+            WHERE documents.subject = ?
+            ORDER BY documents.name, questions.page_number, questions.id
+            """,
+            (subject,),
+        ).fetchall()
+
+        matches: list[sqlite3.Row] = []
+        canonical_key = canonical_topic.lower()
+        for row in rows:
+            topics = canonicalize_topics(json.loads(row["topics_json"]))
+            if any(item.lower() == canonical_key for item in topics):
+                matches.append(row)
+                if len(matches) >= limit:
+                    break
+        return matches
 
     def subject_overview(self, subject: str, question_limit: int = 100, topic_limit: int = 20) -> dict:
         document_count = self.connection.execute(

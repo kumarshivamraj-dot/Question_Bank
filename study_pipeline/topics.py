@@ -41,6 +41,10 @@ GENERIC_TOPIC_WORDS = {
     "date",
     "winter",
     "summer",
+    "wintersem",
+    "summersem",
+    "wintersemester",
+    "summersemester",
 }
 
 TOPIC_ALIAS_MAP = {
@@ -85,10 +89,15 @@ def canonicalize_topic(topic: str) -> str | None:
         return None
 
     lowered = clean.lower()
+    lowered = lowered.replace("-", " ")
+    lowered = re.sub(r"\b(winter|summer)\s*sem(?:ester)?\b", "", lowered).strip()
     lowered = re.sub(r"\b\d+\s*marks?\b", "", lowered).strip()
-    lowered = re.sub(r"\b(?:paper|semester|slot|date)\b\s*:?", "", lowered).strip()
+    lowered = re.sub(r"\b\d{4}(?:\s+\d{2,4})?\b", "", lowered).strip()
+    lowered = re.sub(r"\b(?:paper|semester|slot|date|winter|summer)\b\s*:?", "", lowered).strip()
     lowered = re.sub(r"\s+", " ", lowered)
     if not lowered or lowered in GENERIC_TOPIC_WORDS:
+        return None
+    if not re.search(r"[a-z]", lowered):
         return None
     if len(lowered) <= 2:
         return None

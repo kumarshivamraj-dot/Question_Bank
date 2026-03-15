@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from study_pipeline.embeddings import HashingEmbeddingProvider, OllamaEmbeddingProvider
 from study_pipeline.store import StudyStore
+from study_pipeline.topics import canonicalize_topics
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -134,255 +135,378 @@ def index() -> str:
   <title>Study Index</title>
   <style>
     :root {
-      --ink: #182033;
-      --muted: #5d6470;
-      --line: #d6cdbd;
-      --panel: rgba(255, 252, 246, 0.94);
-      --panel-strong: #fffdfa;
-      --accent: #0f4c81;
-      --accent-2: #0d9488;
-      --accent-3: #aa5a11;
+      --ink: #1c261c;
+      --muted: #627061;
+      --line: #d8ded1;
+      --panel: rgba(252, 253, 248, 0.92);
+      --panel-strong: #fffffc;
+      --accent: #244c3b;
+      --accent-soft: #e4ede4;
+      --accent-warm: #8c6a3c;
+      --canvas: #f4f6ef;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: Georgia, "Times New Roman", serif;
+      line-height: 1.45;
       color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(15, 76, 129, 0.12), transparent 26%),
-        radial-gradient(circle at bottom right, rgba(170, 90, 17, 0.18), transparent 24%),
-        linear-gradient(180deg, #f8f4ec 0%, #ede3d2 100%);
+        radial-gradient(circle at top left, rgba(36, 76, 59, 0.08), transparent 24%),
+        linear-gradient(180deg, #f7f8f3 0%, #eef1e6 100%);
     }
     .shell {
-      max-width: 1280px;
+      max-width: 1040px;
       margin: 0 auto;
-      padding: 28px 18px 48px;
+      padding: 18px 14px 28px;
     }
     .hero {
       display: grid;
-      gap: 16px;
-      margin-bottom: 20px;
+      gap: 4px;
+      margin-bottom: 12px;
     }
     .hero h1 {
       margin: 0;
-      font-size: clamp(2.4rem, 4vw, 4.8rem);
-      line-height: 0.9;
-      letter-spacing: -0.04em;
+      font-size: clamp(1.8rem, 3.8vw, 3.1rem);
+      line-height: 0.96;
+      letter-spacing: -0.025em;
     }
     .hero p {
       margin: 0;
-      max-width: 900px;
+      max-width: 700px;
       color: var(--muted);
-      font-size: 1.04rem;
+      font-size: 0.96rem;
     }
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 22px;
-      padding: 18px;
-      box-shadow: 0 12px 30px rgba(31,41,55,0.06);
-      backdrop-filter: blur(6px);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 8px 18px rgba(28, 38, 28, 0.04);
     }
     .panel h2 {
-      margin: 0 0 10px;
-      font-size: 1.08rem;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
+      margin: 0;
+      font-size: 0.98rem;
     }
     .panel-note {
       color: var(--muted);
-      font-size: 0.93rem;
-      line-height: 1.45;
+      font-size: 0.88rem;
+      line-height: 1.4;
     }
-    .subject-bar, .stack, .field, .overview-strip, .results, .status {
+    .subject-bar, .stack, .field, .results, .status, .panel-head, .subject-summary {
       display: grid;
-      gap: 12px;
+      gap: 8px;
     }
-    .subject-row, .toolbar, .tab-row, .topic-row, .result-meta {
+    .subject-row, .toolbar, .tab-row, .topic-row, .result-meta, .subject-topline, .subject-actions {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
       align-items: center;
     }
-    .dashboard {
+    .mode-switch {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .subjectDashboard {
       display: grid;
-      grid-template-columns: 1.15fr 0.95fr;
-      gap: 18px;
+      gap: 12px;
+      margin-top: 12px;
     }
-    .overview-strip {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      margin-bottom: 18px;
+    .subject-summary {
+      grid-template-columns: repeat(2, minmax(0, max-content));
+      gap: 8px;
     }
-    .hero-card, .stat-card {
-      border: 1px solid rgba(15, 76, 129, 0.14);
-      border-radius: 18px;
-      padding: 16px;
-      background: linear-gradient(140deg, rgba(255,255,255,0.92), rgba(238,246,244,0.84));
+    .question-shell {
+      display: grid;
+      gap: 10px;
+      justify-items: center;
     }
-    .stat-label {
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--muted);
+    .question-stage {
+      width: min(760px, 100%);
+      display: grid;
+      gap: 10px;
     }
-    .stat-value {
-      margin-top: 6px;
-      font-size: 2rem;
+    .topic-toggle-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+    .sidebar-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(28, 38, 28, 0.22);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 160ms ease;
+      z-index: 20;
+    }
+    .sidebar-backdrop.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .topic-sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      width: min(360px, 88vw);
+      padding: 16px 14px;
+      background: rgba(255,255,252,0.98);
+      border-right: 1px solid var(--line);
+      box-shadow: 0 18px 40px rgba(28, 38, 28, 0.16);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 10px;
+      transform: translateX(-104%);
+      transition: transform 180ms ease;
+      z-index: 30;
+    }
+    .topic-sidebar.open {
+      transform: translateX(0);
+    }
+    .sidebar-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.82rem;
       font-weight: 700;
+    }
+    .eyebrow {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
     }
     label {
-      font-size: 0.85rem;
+      font-size: 0.72rem;
       font-weight: 700;
       color: var(--muted);
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.1em;
     }
     input, select, button { font: inherit; }
     input, select {
       width: 100%;
-      padding: 12px 14px;
-      border-radius: 12px;
+      padding: 9px 11px;
+      border-radius: 10px;
       border: 1px solid var(--line);
       background: white;
       color: var(--ink);
     }
-    .subject-row input { max-width: 280px; }
+    .subject-row input { max-width: 240px; }
     button {
       border: 0;
       border-radius: 999px;
-      padding: 12px 18px;
+      padding: 9px 14px;
       color: white;
-      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      background: var(--accent);
       cursor: pointer;
       font-weight: 700;
     }
     button.secondary {
-      background: linear-gradient(90deg, #8f4c16, var(--accent-3));
+      background: var(--accent-warm);
     }
     .tab {
-      border: 1px solid rgba(15, 76, 129, 0.18);
+      border: 1px solid var(--line);
       border-radius: 999px;
-      padding: 10px 14px;
-      background: rgba(255,255,255,0.8);
+      padding: 8px 12px;
+      background: rgba(255,255,255,0.84);
       color: var(--ink);
       cursor: pointer;
       font-weight: 700;
     }
     .tab.active {
-      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      background: var(--accent);
       color: white;
       border-color: transparent;
     }
     .dropzone {
-      border: 2px dashed rgba(15, 76, 129, 0.35);
-      border-radius: 18px;
-      padding: 26px;
-      min-height: 180px;
+      border: 1px dashed rgba(36, 76, 59, 0.35);
+      border-radius: 12px;
+      padding: 14px;
+      min-height: 88px;
       display: grid;
       place-items: center;
       text-align: center;
-      background: linear-gradient(135deg, rgba(15, 76, 129, 0.08), rgba(13, 148, 136, 0.08));
+      background: rgba(255,255,255,0.55);
       transition: 160ms ease;
     }
     .dropzone.dragover {
-      transform: translateY(-2px);
-      border-color: var(--accent-2);
-      background: linear-gradient(135deg, rgba(15, 76, 129, 0.14), rgba(13, 148, 136, 0.14));
+      border-color: var(--accent);
+      background: rgba(228, 237, 228, 0.86);
     }
     .dropzone strong {
       display: block;
-      font-size: 1.15rem;
-      margin-bottom: 6px;
+      font-size: 0.96rem;
+      margin-bottom: 4px;
     }
     .files {
-      margin-top: 12px;
+      margin-top: 8px;
       display: grid;
-      gap: 8px;
-      font-size: 0.95rem;
+      gap: 6px;
+      font-size: 0.88rem;
     }
     .file-item {
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(255,255,255,0.82);
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.88);
       border: 1px solid var(--line);
     }
     .results, .status {
       background: var(--panel-strong);
       border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 14px;
-      min-height: 140px;
+      border-radius: 12px;
+      padding: 12px;
+      min-height: 120px;
       overflow: auto;
+    }
+    .topic-results {
+      min-height: 0;
     }
     .status {
       white-space: pre-wrap;
-      font-size: 0.95rem;
+      font-size: 0.88rem;
     }
     .empty {
       color: var(--muted);
       font-style: italic;
     }
     .result-card {
-      border: 1px solid rgba(216, 208, 191, 0.9);
-      border-radius: 14px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,244,236,0.9));
-      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,249,243,0.9));
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .question-viewer {
       display: grid;
       gap: 10px;
     }
+    .question-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .question-nav .toolbar {
+      gap: 6px;
+    }
+    .question-panel {
+      min-height: 280px;
+    }
+    .counter {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .topic-card {
+      width: 100%;
+      text-align: left;
+      color: var(--ink);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      display: grid;
+      gap: 6px;
+    }
+    .topic-card.active {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
     .result-meta {
-      font-size: 0.82rem;
+      font-size: 0.75rem;
       color: var(--muted);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
     }
     .chip, .topic-pill {
       display: inline-flex;
       align-items: center;
       border-radius: 999px;
-      padding: 4px 10px;
+      padding: 3px 9px;
       font-weight: 700;
     }
     .chip {
-      background: rgba(15, 76, 129, 0.08);
+      background: var(--accent-soft);
       color: var(--accent);
     }
     .topic-pill {
-      background: rgba(13, 148, 136, 0.10);
-      color: var(--accent-2);
-      font-size: 0.82rem;
-    }
-    .score {
-      color: var(--accent-2);
-      font-weight: 700;
+      background: rgba(36, 76, 59, 0.1);
+      color: var(--accent);
+      font-size: 0.76rem;
     }
     .result-text {
       white-space: pre-wrap;
-      line-height: 1.5;
+      line-height: 1.42;
+      font-size: 0.94rem;
+    }
+    .question-card {
+      min-height: 220px;
+      align-content: center;
+      justify-items: center;
+      text-align: center;
+    }
+    .question-card .result-meta,
+    .question-card .result-text,
+    .question-card .topic-row {
+      justify-content: center;
+      text-align: center;
+    }
+    .question-card .result-text {
+      max-width: 62ch;
+      margin: 0 auto;
       font-size: 1rem;
+      line-height: 1.55;
     }
     .result-path {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.8rem;
+      font-size: 0.74rem;
       color: var(--muted);
       word-break: break-all;
     }
-    .stats-grid, .mini-grid {
+    .mini-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 8px;
+    }
+    .single-column {
+      grid-column: 1 / -1;
     }
     .hidden { display: none; }
     @media (max-width: 920px) {
-      .dashboard, .overview-strip, .stats-grid, .mini-grid { grid-template-columns: 1fr; }
+      .mini-grid, .subject-summary { grid-template-columns: 1fr; }
+      .question-stage {
+        width: 100%;
+      }
+      .question-nav {
+        justify-content: center;
+      }
     }
   </style>
 </head>
 <body>
   <div class="shell">
     <section class="hero">
-      <h1>One subject. Every asked question.</h1>
-      <p>Start by naming a subject once. Then upload the best PDF containing all questions, extract clean question blocks, search inside the vector store, and see how many times each topic has been asked so far.</p>
+      <div class="eyebrow">PYQ Topic Navigator</div>
+      <h1>Pick a subject. Open a topic. See the actual questions.</h1>
+      <p>The UI stays focused on the PYQ topics that matter most. Subjects open into an importance-ranked topic list, and clicking a topic shows the matching extracted questions.</p>
     </section>
 
     <section class="panel subject-bar">
@@ -397,114 +521,118 @@ def index() -> str:
       <div id="subjectTabs" class="tab-row"></div>
     </section>
 
+    <section class="panel">
+      <div class="mode-switch">
+        <button id="practiceModeBtn" class="tab active" type="button">Practice View</button>
+        <button id="adminModeBtn" class="tab" type="button">Admin Panel</button>
+      </div>
+    </section>
+
     <section id="emptyState" class="panel stack">
-      <h2>Start Here</h2>
-      <div class="panel-note">The first thing this app asks for is the subject name. After that, everything stays grouped inside subject tabs. Upload your best question PDF to build one clean subject dashboard.</div>
+      <h2>No Subject Open</h2>
+      <div class="panel-note">Open an existing subject from the tabs, or type a new subject name and ingest a PYQ file.</div>
     </section>
 
     <section id="subjectDashboard" class="hidden">
-      <div class="overview-strip">
-        <div class="hero-card">
-          <div class="stat-label">Current Subject</div>
-          <div id="currentSubjectLabel" class="stat-value">-</div>
-        </div>
-        <div class="hero-card">
-          <div class="stat-label">Questions Extracted</div>
-          <div id="overviewQuestions" class="stat-value">0</div>
-        </div>
-        <div class="hero-card">
-          <div class="stat-label">Indexed Documents</div>
-          <div id="overviewDocuments" class="stat-value">0</div>
-        </div>
-      </div>
       <section class="panel stack">
-        <h2>Danger Zone</h2>
-        <div class="panel-note">Delete only the current subject or wipe the entire study database and uploaded files.</div>
-        <div class="toolbar">
-          <button id="deleteSubjectBtn" class="secondary">Delete This Subject</button>
-          <button id="resetDbBtn" class="secondary">Delete Entire Database</button>
+        <div class="subject-topline">
+          <div class="stack">
+            <div class="eyebrow">Current Subject</div>
+            <h2 id="currentSubjectLabel">-</h2>
+          </div>
+          <div class="subject-summary">
+            <div class="meta-pill">Questions <span id="overviewQuestions">0</span></div>
+            <div class="meta-pill">Documents <span id="overviewDocuments">0</span></div>
+          </div>
         </div>
+        <div class="panel-note">Topics are ordered from most important to least important based on extracted PYQ frequency.</div>
       </section>
 
-      <section class="dashboard">
-        <div class="stack">
-          <div class="panel stack">
-            <h2>Upload Question PDF</h2>
-            <div class="panel-note">Upload your main PYQ PDF here. The app uses text extraction first and falls back to the cheap vision path only when no usable question blocks are found.</div>
-            <div class="mini-grid">
-              <div class="field">
-                <label for="sourceType">Source Type</label>
-                <select id="sourceType">
-                  <option value="pyq">PYQ</option>
-                  <option value="reference">Reference</option>
-                  <option value="handout">Handout</option>
-                  <option value="notes">Notes</option>
-                  <option value="ppt">PPT</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="visionProvider">Vision For PYQs</label>
-                <select id="visionProvider">
-                  <option value="claude_cheap">Claude Cheap Fallback</option>
-                  <option value="none">None</option>
-                  <option value="claude">Claude</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="ocrLang">OCR Language</label>
-                <input id="ocrLang" value="eng">
-              </div>
-            </div>
-            <div id="dropzone" class="dropzone">
-              <div>
-                <strong>Drop PDFs, JSONs, PPTXs, MDs, or TXTs here</strong>
-                <div>Use a clean question JSON if you already have one.</div>
-                <input id="fileInput" type="file" multiple hidden accept=".pdf,.json,.pptx,.txt,.md">
-                <div id="fileList" class="files"></div>
-              </div>
-            </div>
-            <div class="toolbar">
-              <button id="uploadBtn">Ingest Files</button>
-              <button id="refreshSubjectBtn" class="secondary">Refresh Subject</button>
+      <section id="adminView" class="hidden">
+        <section id="ingestPanel" class="panel stack">
+          <div class="panel-head">
+            <h2>Ingest More Files</h2>
+            <div class="panel-note">Only admins should add or remove material. Practice users stay in the question view.</div>
+          </div>
+          <div class="mini-grid">
+            <div class="field">
+              <label for="sourceType">Source Type</label>
+              <select id="sourceType">
+                <option value="pyq">PYQ</option>
+                <option value="reference">Reference</option>
+                <option value="handout">Handout</option>
+                <option value="notes">Notes</option>
+                <option value="ppt">PPT</option>
+              </select>
             </div>
             <div class="field">
-              <label>Status</label>
-              <div id="status" class="status">No uploads yet.</div>
+              <label for="visionProvider">Vision For PYQs</label>
+              <select id="visionProvider">
+                <option value="claude_cheap">Claude Cheap Fallback</option>
+                <option value="none">None</option>
+                <option value="claude">Claude</option>
+              </select>
+            </div>
+            <div class="field single-column">
+              <label for="ocrLang">OCR Language</label>
+              <input id="ocrLang" value="eng">
             </div>
           </div>
-
-          <div class="panel stack">
-            <h2>All Extracted Questions</h2>
-            <div class="panel-note">Every stored question for the current subject, shown cleanly instead of raw JSON.</div>
-            <div id="allQuestions" class="results">No questions yet.</div>
-          </div>
-        </div>
-
-        <div class="stack">
-          <div class="panel stack">
-            <h2>Topic Frequency</h2>
-            <div class="panel-note">This uses stored extracted questions to count how many questions from each topic were asked till now.</div>
-            <div id="topicResults" class="results">No topics yet.</div>
-          </div>
-
-          <div class="panel stack">
-            <h2>Search Within Subject</h2>
-            <div class="field">
-              <label for="searchQuery">Topic Query</label>
-              <input id="searchQuery" placeholder="normalization, cache coherence, pipelining">
+          <div id="dropzone" class="dropzone">
+            <div>
+              <strong>Drop PYQ PDFs or clean question JSON files</strong>
+              <div>Notes and references can still be indexed, but the topic ranking comes from extracted PYQ questions.</div>
+              <input id="fileInput" type="file" multiple hidden accept=".pdf,.json,.pptx,.txt,.md">
+              <div id="fileList" class="files"></div>
             </div>
-            <div class="toolbar">
-              <button id="searchBtn">Search Material</button>
-              <button id="questionBtn" class="secondary">Search Questions</button>
-            </div>
-            <div id="searchResults" class="results">No results yet.</div>
           </div>
+          <div class="toolbar">
+            <button id="uploadBtn">Ingest Files</button>
+            <button id="refreshSubjectBtn" class="secondary">Refresh Subject</button>
+            <button id="deleteSubjectBtn" class="secondary">Delete This Subject</button>
+            <button id="resetDbBtn" class="secondary">Delete Entire Database</button>
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <div id="status" class="status">No uploads yet.</div>
+          </div>
+        </section>
+      </section>
 
-          <div class="panel stack">
-            <h2>Database Stats</h2>
-            <div id="statsResults" class="results">No stats loaded.</div>
+      <section id="practiceView">
+        <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+        <aside id="topicSidebar" class="topic-sidebar" aria-hidden="true">
+          <div class="sidebar-head">
+            <div class="stack">
+              <h2>Important Topics</h2>
+              <div class="panel-note">Most asked first. Click a topic to load the matching PYQ questions.</div>
+            </div>
+            <button id="closeSidebarBtn" class="secondary" type="button">Close</button>
           </div>
-        </div>
+          <div id="topicResults" class="results topic-results">No topics yet.</div>
+        </aside>
+
+        <section class="question-shell">
+          <div class="topic-toggle-row">
+            <button id="openSidebarBtn" type="button">Important Topics</button>
+          </div>
+          <div class="panel question-stage">
+            <div class="panel-head">
+              <div class="stack">
+                <h2 id="selectedTopicLabel">Questions</h2>
+                <div id="questionHint" class="panel-note">Choose a topic from the left.</div>
+              </div>
+            </div>
+            <div class="question-nav">
+              <div id="questionCounter" class="counter">0 questions</div>
+              <div class="toolbar">
+                <button id="prevQuestionBtn" class="secondary" type="button">Previous</button>
+                <button id="nextQuestionBtn" type="button">Next</button>
+              </div>
+            </div>
+            <div id="topicQuestions" class="results question-panel">No questions yet.</div>
+          </div>
+        </section>
       </section>
     </section>
   </div>
@@ -512,23 +640,40 @@ def index() -> str:
   <script>
     const emptyState = document.getElementById('emptyState');
     const subjectDashboard = document.getElementById('subjectDashboard');
+    const practiceView = document.getElementById('practiceView');
+    const adminView = document.getElementById('adminView');
     const subjectInput = document.getElementById('subjectInput');
     const subjectTabs = document.getElementById('subjectTabs');
     const subjectHint = document.getElementById('subjectHint');
     const currentSubjectLabel = document.getElementById('currentSubjectLabel');
     const overviewQuestions = document.getElementById('overviewQuestions');
     const overviewDocuments = document.getElementById('overviewDocuments');
-    const allQuestions = document.getElementById('allQuestions');
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const fileList = document.getElementById('fileList');
     const statusBox = document.getElementById('status');
-    const searchResults = document.getElementById('searchResults');
     const topicResults = document.getElementById('topicResults');
-    const statsResults = document.getElementById('statsResults');
+    const topicQuestions = document.getElementById('topicQuestions');
+    const selectedTopicLabel = document.getElementById('selectedTopicLabel');
+    const questionHint = document.getElementById('questionHint');
+    const questionCounter = document.getElementById('questionCounter');
+    const prevQuestionBtn = document.getElementById('prevQuestionBtn');
+    const nextQuestionBtn = document.getElementById('nextQuestionBtn');
+    const topicSidebar = document.getElementById('topicSidebar');
+    const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+    const openSidebarBtn = document.getElementById('openSidebarBtn');
+    const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+    const practiceModeBtn = document.getElementById('practiceModeBtn');
+    const adminModeBtn = document.getElementById('adminModeBtn');
     let selectedFiles = [];
     let knownSubjects = [];
     let currentSubject = localStorage.getItem('study.currentSubject') || '';
+    let currentTopic = '';
+    let activeMode = localStorage.getItem('study.activeMode') || 'practice';
+    let latestSubjectOverview = null;
+    let currentTopicQuestions = [];
+    let currentQuestionIndex = 0;
+    let sidebarOpen = false;
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -548,48 +693,75 @@ def index() -> str:
       return `<div class="topic-row">${topics.map(topic => `<span class="topic-pill">${escapeHtml(topic)}</span>`).join('')}</div>`;
     }
 
-    function renderSearchPayload(payload, mode) {
-      const items = payload.results || [];
-      if (!items.length) {
-        return renderEmpty(mode === 'questions' ? 'No matching questions found.' : 'No matching material found.');
+    function renderQuestionViewer(items, index) {
+      if (!items || !items.length) {
+        return renderEmpty('No extracted questions for this topic yet.');
       }
-      return items.map(item => {
-        const score = typeof item.score === 'number' ? `<span class="score">score ${item.score.toFixed(3)}</span>` : '';
-        const number = item.question_number ? `<span class="chip">${escapeHtml(item.question_number)}</span>` : '';
-        return `
-          <article class="result-card">
+      const safeIndex = Math.min(Math.max(index, 0), items.length - 1);
+      const item = items[safeIndex];
+      return `
+        <div class="question-viewer">
+          <article class="result-card question-card">
             <div class="result-meta">
-              <span class="chip">${escapeHtml(item.subject || 'general')}</span>
-              <span>${escapeHtml(item.source_type || '')}</span>
-              <span>${escapeHtml(item.document || 'Untitled')}</span>
+              <span class="chip">${escapeHtml(item.source_type || 'pyq')}</span>
+              <span>${escapeHtml(item.document || '-')}</span>
               <span>page ${escapeHtml(item.page ?? '-')}</span>
-              ${number}
-              ${score}
+              ${item.question_number ? `<span class="chip">${escapeHtml(item.question_number)}</span>` : ''}
             </div>
             <div class="result-text">${escapeHtml(item.text || '')}</div>
             ${renderTopics(item.topics || [])}
-            <div class="result-path">${escapeHtml(item.path || '')}</div>
           </article>
-        `;
-      }).join('');
+        </div>
+      `;
     }
 
-    function renderQuestionList(items) {
-      if (!items || !items.length) {
-        return renderEmpty('No extracted questions for this subject yet.');
+    function updateQuestionNavigation() {
+      const total = currentTopicQuestions.length;
+      if (!total) {
+        questionCounter.textContent = '0 questions';
+        prevQuestionBtn.disabled = true;
+        nextQuestionBtn.disabled = true;
+        return;
       }
-      return items.map(item => `
-        <article class="result-card">
-          <div class="result-meta">
-            <span class="chip">${escapeHtml(item.source_type || 'pyq')}</span>
-            <span>${escapeHtml(item.document || '-')}</span>
-            <span>page ${escapeHtml(item.page ?? '-')}</span>
-            ${item.question_number ? `<span class="chip">${escapeHtml(item.question_number)}</span>` : ''}
-          </div>
-          <div class="result-text">${escapeHtml(item.text || '')}</div>
-          ${renderTopics(item.topics || [])}
-        </article>
-      `).join('');
+      const current = currentQuestionIndex + 1;
+      const remaining = total - current;
+      questionCounter.textContent = `${current} of ${total} • ${remaining} more after this`;
+      prevQuestionBtn.disabled = currentQuestionIndex === 0;
+      nextQuestionBtn.disabled = currentQuestionIndex >= total - 1;
+    }
+
+    function syncSidebar() {
+      topicSidebar.classList.toggle('open', sidebarOpen);
+      sidebarBackdrop.classList.toggle('visible', sidebarOpen);
+      topicSidebar.setAttribute('aria-hidden', sidebarOpen ? 'false' : 'true');
+    }
+
+    function setSidebarOpen(value) {
+      sidebarOpen = Boolean(value);
+      syncSidebar();
+    }
+
+    function syncMode() {
+      const isAdmin = activeMode === 'admin';
+      adminView.classList.toggle('hidden', !isAdmin);
+      practiceView.classList.toggle('hidden', isAdmin);
+      practiceModeBtn.classList.toggle('active', !isAdmin);
+      adminModeBtn.classList.toggle('active', isAdmin);
+      if (isAdmin) {
+        setSidebarOpen(false);
+        subjectHint.textContent = currentSubject
+          ? `Admin mode for ${currentSubject}. Ingest and maintenance tools are enabled.`
+          : 'Admin mode. Open a subject to manage its content.';
+        return;
+      }
+      subjectHint.textContent = currentSubject
+        ? `Practice mode for ${currentSubject}. Open a topic and work through the questions.`
+        : 'Practice mode. Open a subject to start.';
+    }
+
+    function renderCurrentQuestion() {
+      topicQuestions.innerHTML = renderQuestionViewer(currentTopicQuestions, currentQuestionIndex);
+      updateQuestionNavigation();
     }
 
     function renderIngestPayload(payload) {
@@ -627,35 +799,15 @@ def index() -> str:
         return renderEmpty('No topics found for this subject yet.');
       }
       return topics.map(item => `
-        <article class="result-card">
+        <button class="topic-card ${item.topic === currentTopic ? 'active' : ''}" data-topic="${escapeHtml(item.topic)}" type="button">
           <div class="result-meta">
-            <span class="chip">${escapeHtml(payload.subject || 'general')}</span>
-            <span>${escapeHtml(String(item.question_count ?? item.count ?? 0))} questions</span>
-            <span>${escapeHtml(String(item.chunk_count ?? 0))} chunks</span>
-            <span class="score">score ${escapeHtml(String(item.score ?? item.count ?? 0))}</span>
+            <span>frequency ${escapeHtml(String(item.question_count ?? item.count ?? 0))}</span>
+            <span>${escapeHtml(String(item.chunk_count ?? 0))} supporting chunks</span>
           </div>
           <div class="result-text">${escapeHtml(item.topic)}</div>
-          ${(item.examples || []).length ? `<div class="panel-note">${item.examples.map(example => escapeHtml(example)).join(' | ')}</div>` : ''}
-        </article>
+          ${(item.examples || []).length ? `<div class="panel-note">${escapeHtml(item.examples[0])}</div>` : ''}
+        </button>
       `).join('');
-    }
-
-    function renderStatsPayload(payload) {
-      const totals = payload.totals || {};
-      const subjects = payload.subjects || [];
-      return `
-        <div class="stats-grid">
-          <div class="stat-card"><div class="stat-label">Documents</div><div class="stat-value">${escapeHtml(totals.documents ?? 0)}</div></div>
-          <div class="stat-card"><div class="stat-label">Chunks</div><div class="stat-value">${escapeHtml(totals.chunks ?? 0)}</div></div>
-          <div class="stat-card"><div class="stat-label">Questions</div><div class="stat-value">${escapeHtml(totals.questions ?? 0)}</div></div>
-        </div>
-        ${subjects.length ? subjects.map(item => `
-          <article class="result-card">
-            <div class="result-meta"><span class="chip">${escapeHtml(item.subject)}</span></div>
-            <div class="result-text">${escapeHtml(String(item.document_count))} documents indexed</div>
-          </article>
-        `).join('') : renderEmpty('No subjects indexed yet.')}
-      `;
     }
 
     function renderSubjectTabs() {
@@ -697,12 +849,14 @@ def index() -> str:
     function setCurrentSubject(subject) {
       currentSubject = (subject || '').trim();
       if (!currentSubject) return;
+      currentTopic = '';
       localStorage.setItem('study.currentSubject', currentSubject);
       subjectInput.value = currentSubject;
       currentSubjectLabel.textContent = currentSubject;
-      subjectHint.textContent = `Working inside ${currentSubject}. Upload files and review extracted questions below.`;
       emptyState.classList.add('hidden');
       subjectDashboard.classList.remove('hidden');
+      setSidebarOpen(false);
+      syncMode();
       renderSubjectTabs();
       loadSubjectOverview();
       loadStats();
@@ -769,21 +923,29 @@ def index() -> str:
       }
     }
 
-    async function runSearch(mode) {
-      const query = document.getElementById('searchQuery').value.trim();
-      if (!currentSubject) {
-        searchResults.innerHTML = renderEmpty('Select a subject first.');
+    async function loadTopicQuestions(topic) {
+      if (!currentSubject || !topic) {
+        topicQuestions.innerHTML = renderEmpty('Choose a topic from the left.');
         return;
       }
-      if (!query) {
-        searchResults.innerHTML = renderEmpty('Enter a query.');
-        return;
-      }
-      const endpoint = mode === 'questions' ? '/api/questions' : '/api/search';
-      const params = new URLSearchParams({ query, subject: currentSubject });
-      const response = await fetch(`${endpoint}?${params.toString()}`);
+      currentTopic = topic;
+      currentTopicQuestions = [];
+      currentQuestionIndex = 0;
+      selectedTopicLabel.textContent = topic;
+      questionHint.textContent = `Showing extracted PYQ questions tagged under ${topic}.`;
+      topicResults.innerHTML = renderTopicPayload(latestSubjectOverview || { question_topics: [] });
+      topicResults.querySelectorAll('[data-topic]').forEach(button => {
+        button.addEventListener('click', () => loadTopicQuestions(button.dataset.topic));
+      });
+      topicQuestions.innerHTML = renderEmpty('Loading questions...');
+      updateQuestionNavigation();
+      const params = new URLSearchParams({ subject: currentSubject, topic, limit: '120' });
+      const response = await fetch(`/api/topic-questions?${params.toString()}`);
       const payload = await response.json();
-      searchResults.innerHTML = renderSearchPayload(payload, mode);
+      currentTopicQuestions = payload.results || [];
+      currentQuestionIndex = 0;
+      renderCurrentQuestion();
+      setSidebarOpen(false);
     }
 
     async function loadSubjectOverview() {
@@ -792,10 +954,26 @@ def index() -> str:
       }
       const response = await fetch(`/api/subject-overview?subject=${encodeURIComponent(currentSubject)}`);
       const payload = await response.json();
+      latestSubjectOverview = payload;
       topicResults.innerHTML = renderTopicPayload(payload);
-      allQuestions.innerHTML = renderQuestionList(payload.questions || []);
+      topicResults.querySelectorAll('[data-topic]').forEach(button => {
+        button.addEventListener('click', () => loadTopicQuestions(button.dataset.topic));
+      });
       overviewQuestions.textContent = String(payload.totals?.questions ?? 0);
       overviewDocuments.textContent = String(payload.totals?.documents ?? 0);
+      const topics = payload.question_topics || [];
+      if (topics.length) {
+        const nextTopic = topics.find(item => item.topic === currentTopic)?.topic || topics[0].topic;
+        await loadTopicQuestions(nextTopic);
+      } else {
+        currentTopic = '';
+        currentTopicQuestions = [];
+        currentQuestionIndex = 0;
+        selectedTopicLabel.textContent = 'Questions';
+        questionHint.textContent = 'Choose a topic from the left.';
+        topicQuestions.innerHTML = renderEmpty('No questions yet.');
+        updateQuestionNavigation();
+      }
     }
 
     async function loadStats() {
@@ -803,7 +981,6 @@ def index() -> str:
       const payload = await response.json();
       knownSubjects = payload.subjects || [];
       renderSubjectTabs();
-      statsResults.innerHTML = renderStatsPayload(payload);
     }
 
     async function deleteSubject() {
@@ -825,9 +1002,15 @@ def index() -> str:
       subjectInput.value = '';
       emptyState.classList.remove('hidden');
       subjectDashboard.classList.add('hidden');
-      allQuestions.innerHTML = renderEmpty('No extracted questions for this subject yet.');
+      setSidebarOpen(false);
+      currentTopicQuestions = [];
+      currentQuestionIndex = 0;
       topicResults.innerHTML = renderEmpty('No topics found for this subject yet.');
-      searchResults.innerHTML = renderEmpty('No matching material found.');
+      topicQuestions.innerHTML = renderEmpty('No questions yet.');
+      selectedTopicLabel.textContent = 'Questions';
+      questionHint.textContent = 'Choose a topic from the left.';
+      updateQuestionNavigation();
+      syncMode();
       await loadStats();
     }
 
@@ -846,26 +1029,58 @@ def index() -> str:
       subjectHint.textContent = 'Create or select a subject tab to begin.';
       emptyState.classList.remove('hidden');
       subjectDashboard.classList.add('hidden');
-      allQuestions.innerHTML = renderEmpty('No extracted questions for this subject yet.');
+      setSidebarOpen(false);
+      currentTopicQuestions = [];
+      currentQuestionIndex = 0;
       topicResults.innerHTML = renderEmpty('No topics found for this subject yet.');
-      searchResults.innerHTML = renderEmpty('No matching material found.');
-      statsResults.innerHTML = renderEmpty('No stats loaded.');
+      topicQuestions.innerHTML = renderEmpty('No questions yet.');
+      selectedTopicLabel.textContent = 'Questions';
+      questionHint.textContent = 'Choose a topic from the left.';
+      updateQuestionNavigation();
       renderSubjectTabs();
+      syncMode();
       await loadStats();
     }
 
     document.getElementById('saveSubjectBtn').addEventListener('click', openSubjectFromInput);
     document.getElementById('uploadBtn').addEventListener('click', uploadFiles);
     document.getElementById('refreshSubjectBtn').addEventListener('click', loadSubjectOverview);
-    document.getElementById('searchBtn').addEventListener('click', () => runSearch('search'));
-    document.getElementById('questionBtn').addEventListener('click', () => runSearch('questions'));
     document.getElementById('deleteSubjectBtn').addEventListener('click', deleteSubject);
     document.getElementById('resetDbBtn').addEventListener('click', resetDatabase);
+    practiceModeBtn.addEventListener('click', () => {
+      activeMode = 'practice';
+      localStorage.setItem('study.activeMode', activeMode);
+      syncMode();
+    });
+    adminModeBtn.addEventListener('click', () => {
+      activeMode = 'admin';
+      localStorage.setItem('study.activeMode', activeMode);
+      syncMode();
+    });
+    openSidebarBtn.addEventListener('click', () => setSidebarOpen(true));
+    closeSidebarBtn.addEventListener('click', () => setSidebarOpen(false));
+    sidebarBackdrop.addEventListener('click', () => setSidebarOpen(false));
+    prevQuestionBtn.addEventListener('click', () => {
+      if (currentQuestionIndex > 0) {
+        currentQuestionIndex -= 1;
+        renderCurrentQuestion();
+      }
+    });
+    nextQuestionBtn.addEventListener('click', () => {
+      if (currentQuestionIndex < currentTopicQuestions.length - 1) {
+        currentQuestionIndex += 1;
+        renderCurrentQuestion();
+      }
+    });
     subjectInput.addEventListener('keydown', event => {
       if (event.key === 'Enter') openSubjectFromInput();
+      if (event.key === 'Escape') setSidebarOpen(false);
     });
 
     renderFiles();
+    syncSidebar();
+    syncMode();
+    updateQuestionNavigation();
     loadStats();
     if (currentSubject) {
       setCurrentSubject(currentSubject);
@@ -926,7 +1141,7 @@ def api_search(query: str, subject: str | None = None, limit: int = 8) -> dict:
                 "document": item.document_name,
                 "page": item.page_number,
                 "score": round(item.score, 4),
-                "topics": item.topics,
+                "topics": canonicalize_topics(item.topics),
                 "path": item.path,
                 "text": item.chunk_text,
             }
@@ -949,7 +1164,7 @@ def api_questions(query: str, subject: str | None = None, limit: int = 10) -> di
                 "document": row["name"],
                 "page": row["page_number"],
                 "question_number": row["question_number"],
-                "topics": json.loads(row["topics_json"]),
+                "topics": canonicalize_topics(json.loads(row["topics_json"])),
                 "path": row["path"],
                 "text": row["text"],
             }
@@ -959,7 +1174,7 @@ def api_questions(query: str, subject: str | None = None, limit: int = 10) -> di
 
 
 @app.get("/api/subject-overview")
-def api_subject_overview(subject: str, question_limit: int = 120, topic_limit: int = 20) -> dict:
+def api_subject_overview(subject: str, question_limit: int = 120, topic_limit: int = 50) -> dict:
     store = get_store()
     overview = store.subject_overview(subject, question_limit=question_limit, topic_limit=topic_limit)
     return {
@@ -980,11 +1195,34 @@ def api_subject_overview(subject: str, question_limit: int = 120, topic_limit: i
                 "document": row["name"],
                 "page": row["page_number"],
                 "question_number": row["question_number"],
-                "topics": json.loads(row["topics_json"]),
+                "topics": canonicalize_topics(json.loads(row["topics_json"])),
                 "path": row["path"],
                 "text": row["text"],
             }
             for row in overview["question_rows"]
+        ],
+    }
+
+
+@app.get("/api/topic-questions")
+def api_topic_questions(subject: str, topic: str, limit: int = 120) -> dict:
+    store = get_store()
+    rows = store.questions_for_topic(subject, topic, limit=limit)
+    return {
+        "subject": subject,
+        "topic": topic,
+        "results": [
+            {
+                "subject": row["subject"],
+                "source_type": row["source_type"],
+                "document": row["name"],
+                "page": row["page_number"],
+                "question_number": row["question_number"],
+                "topics": canonicalize_topics(json.loads(row["topics_json"])),
+                "path": row["path"],
+                "text": row["text"],
+            }
+            for row in rows
         ],
     }
 
