@@ -1,0 +1,616 @@
+{
+  "course_code": "BMAT102L",
+  "course_name": "Differential Equations and Transforms",
+  "exam": "Continuous Assessment Test - II",
+  "university": "Vellore Institute of Technology (VIT)",
+  "school": "School of Advanced Sciences",
+  "exam_duration": "90 minutes",
+  "maximum_marks": 50,
+
+  "papers": [
+
+    {
+      "paper_id": 1,
+      "slot": "A1+TA1+TAA1",
+      "semester": "Winter Semester 2023-2024",
+      "programme": "B.Tech / M.Tech Integrated",
+      "general_instruction": "Answer ALL Questions",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "question": "Find the Laplace transform of the periodic function f(t) = { t^2, 0 < t < 2 ; 2, 2 < t < 3 } with period T = 3."
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "question": "Find the inverse Laplace transform of F(s) = [1 - s(5 + 3s)] / [s * ((s+1)^2 + 1)]."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": "CO4",
+          "BL": "BL3",
+          "question": "For the LRC circuit given by L * d^2q/dt^2 + R * dq/dt + (1/C) * q = E(t), where dq/dt(0) = q(0) = 0 and L = 1, R = 3, C = 0.5, E(t) = 10 * delta(t). Find: (a) the charge q(t) and (b) the resulting current i(t) in the circuit, using Laplace transforms with convolution theorem."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL2",
+          "question": "Find the Fourier series of the function f(x) = { -x - pi, for -pi < x < 0 ; x + pi, for 0 < x < pi }, hence find the sum 1 - 1/3 + 1/5 - ..."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL2",
+          "question": "Find the half range Fourier cosine series of f(x) = x(2 - x) in 0 <= x <= 3, and hence find the sum 1/1^2 - 3/2^2 + 1/3^2 - 3/4^2 + - - ..."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 2,
+      "slot": "A1+TA1+TAA1",
+      "semester": "Winter Semester 2024-2025",
+      "programme": "B.Tech",
+      "date_of_examination": "16-03-2025",
+      "general_instruction": "Answer All Questions",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": 2,
+          "BL": 2,
+          "question": "Using Laplace transform, evaluate integral from 0 to infinity of e^(-2t) * (sin^2(t) / t) dt."
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": 2,
+          "BL": 2,
+          "question": "Find the inverse Laplace transform of s / (s^4 + s^2 + 1) using Partial fractions method."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": 4,
+          "BL": 3,
+          "question": "An electrical circuit consists of an inductance 1 henry, a resistance of 3 ohms and a condenser of capacitance 0.5 farads. Find the charge q at any time t, given that q(0) = 0 and q'(0) = 3 using Laplace transform."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": 4,
+          "BL": 3,
+          "question": "Obtain the solution of u_x + u_t = 0 with u(0, t) = 0 (t > 0) and u(x, 0) = 1 + x (x > 0), using Laplace transform."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": 3,
+          "BL": 2,
+          "question": "Obtain the Fourier series expansion of f(x) = { 1/2 + x, for -1 <= x <= 0 ; 1/2 - x, for 0 <= x <= 1 } and hence find the value of 1/1^2 + 1/3^2 + 1/5^2 + ..."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 3,
+      "slot": "A2+TA2",
+      "semester": "Winter Semester 2022-2023",
+      "programme": "B.Tech",
+      "general_instruction": "Answer all the questions",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "question": "Solve the differential equation d^2y/dx^2 + 4 * dy/dx + 3y = e^(-x) * sin(x), y(0) = 0 and y'(0) = 1 by method of undetermined coefficients."
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "question": "Use method of variation of parameters to find the general solution of the differential equation x^2 * d^2y/dx^2 - 3x * dy/dx + 4y = log(x), (x > 0)."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "question": "A 16-pound weight (w = mg, where g = 32 ft/s) is attached to a 5-foot-long spring (k = spring constant). At equilibrium the spring measures 8.2 feet. If the weight is pushed up and released from rest at a point 2 feet above the equilibrium position. Let the vibrations with an external constant force f(t) = 5 units be described by the equation m * d^2x/dt^2 + dx/dt + kx = f(t). Find the vertical displacement x(t), provided the surrounding medium offers a resistance numerically equal to the instantaneous velocity. Also discuss the nature of the vibrating spring."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "sub_parts": [
+            {
+              "part": "a",
+              "marks": 5,
+              "question": "Form the partial differential equation for (x - a)^2 + (y - b)^2 + z^2 = r^2 by eliminating the arbitrary constants a and b."
+            },
+            {
+              "part": "b",
+              "marks": 5,
+              "question": "Find the solution of the non-linear partial differential equation z^2 = 1 + p^2 + q^2, where p = dz/dx, q = dz/dy."
+            }
+          ]
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "question": "Find the general solution of the differential equation (x^2 - yz)p + (y^2 - zx)q = z^2 - xy, where p = dz/dx, q = dz/dy."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 4,
+      "slot": "A2+TA2",
+      "semester": "Winter Semester 2023-2024",
+      "programme": "B.Tech",
+      "general_instruction": "Answer all the questions. Each question carries 10 marks.",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "sub_parts": [
+            {
+              "part": "a",
+              "marks": 5,
+              "question": "Find the Laplace transform of the periodic signal with period tau = 2*pi, given by f(t) = { 1/2, 0 < t <= pi ; 2/3, pi < t <= 2*pi }."
+            },
+            {
+              "part": "b",
+              "marks": 5,
+              "question": "Find L{ t * (e^(-at) + e^(at))^2 }."
+            }
+          ]
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "question": "Find the convolution of f(t) = t^2 and g(t) = sin(5t)/5. Use this information to obtain the inverse Laplace transform of P(s) = 1 / (s^3 * (s^2 + 25))."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": "CO4",
+          "BL": "BL3",
+          "question": "Solve the initial value problem d^2x/dt^2 - dx/dt - 12x = H(t - 3) with x(0) = -1, x'(0) = -4 through the Laplace transform, where H(t - a) denotes the Heaviside unit step function with a >= 0."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL2",
+          "question": "Find the Fourier series of the half-wave rectified spatial signal f(x) = { 0, -pi < x <= 0 ; x^3, 0 < x < pi }. Use it to compute the sum of the series 1/1^2 + 1/3^2 + 1/5^2 + 1/7^2 + ... . What about the sum of the Fourier series at x = +/-pi?"
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL2",
+          "sub_parts": [
+            {
+              "part": "a",
+              "question": "Find the half-range sine series of f(x) = e^(-x) in (0, l)."
+            },
+            {
+              "part": "b",
+              "question": "Given that x^3 - pi^2 * x = sum_{n=1}^{infinity} [12*(-1)^n / n^3] * sin(nx) for all 0 <= x <= pi, find the sum of the series 1 - 1/3^3 + 1/5^3 - 1/7^3 + ..."
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "paper_id": 5,
+      "slot": "A2+TA2+TAA2",
+      "semester": "Winter Semester 2024-2025",
+      "programme": "B.Tech",
+      "date_of_examination": "16-03-2025",
+      "general_instruction": "Answer All Questions",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": 2,
+          "BL": 2,
+          "sub_parts": [
+            {
+              "part": "a",
+              "marks": 5,
+              "question": "Find the Laplace transform of the following functions: f(t) = { 3, 0 <= t <= 2 ; 2t, 2 < t < infinity }."
+            },
+            {
+              "part": "b",
+              "marks": 5,
+              "question": "Find the Laplace transform of g(t) = e^t * cos(2t) + t^2 * sin(t)."
+            }
+          ]
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": 2,
+          "BL": 2,
+          "question": "Apply Convolution theorem to evaluate the inverse Laplace transform of F(s) = s / ((s^2 + 9)(s^2 + 25))."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": 4,
+          "BL": 3,
+          "question": "Solve the given initial value problem (IVP) using Laplace transform: y'' + 7y' + 6y = H(t - pi/2); where y = 0 = y' at t = 0."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": 4,
+          "BL": 3,
+          "question": "Solve the given PDE by the method of Laplace transform: dy/dt = 3 * dy/dx - 5 * e^(-2t), with initial condition y(x, 0) = 2x, under the assumption that y(x, t) is bounded for all x in (0, 2) and t > 0."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": 3,
+          "BL": 2,
+          "question": "Find the Fourier series of the function f(x) = (2 - x)^2; 0 < x < 4. Hence, deduce that 1/1^2 + 1/2^2 + 1/3^2 + ... = pi^2 / 6."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 6,
+      "slot": "B2+TB2+TBB2",
+      "semester": "Winter Semester 2023-2024",
+      "programme": "B.Tech",
+      "general_instruction": "Answer ALL Questions",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": "CO2",
+          "sub_parts": [
+            {
+              "part": "i",
+              "marks": 5,
+              "question": "Evaluate the Laplace transform of the function sin(3t) * cos(2t) / t."
+            },
+            {
+              "part": "ii",
+              "marks": 5,
+              "question": "Let f(t) be periodic with period 4, where f(t) = { 3t, 0 < t < 2 ; 6, 2 < t < 4 }. Find the Laplace transform of the function."
+            }
+          ]
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": "CO2",
+          "question": "Find the inverse Laplace transform of s / (s^4 + s^2 + 1) using the method of partial fraction."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": "CO2",
+          "question": "An inductor of 2 henrys, a resistor of 16 ohms and a capacitor of 0.02 farads are connected in series with an e.m.f of H(t - 3) volts. At t = 0, the charge on the capacitor and current in circuit are zero. Using the Laplace transform, find the charge at any time t > 0."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": "CO3",
+          "question": "Obtain the Fourier series for the function f(x) = { x, in 0 < x < 1 ; 1 - x, in 1 < x < 2 } and hence find the value of 1/1^2 + 1/2^2 + 1/3^2 + 1/4^2 + ..."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": "CO3",
+          "question": "Find the half range Fourier sine series expansion of x(pi - x) in the interval (0, pi). Also evaluate the root mean square value of the function."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 7,
+      "slot": "C1+TC1+TCC1",
+      "semester": "Winter Semester 2023-2024",
+      "programme": "B.Tech",
+      "general_instruction": "Students are permitted to bring any number of text books and hand written note books (class notes). Answer all the Questions.",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "sub_parts": [
+            {
+              "part": "a",
+              "marks": 5,
+              "question": "Find the Laplace transform of the periodic function f(t) of period 2*pi/n, where f(t) = { 2, in 0 < t < 1/2 ; 0, in 1/2 <= t < 2*pi/n }."
+            },
+            {
+              "part": "b",
+              "marks": 5,
+              "question": "Evaluate integral from 0 to infinity of (e^(-3t) - e^(-6t)) / t dt, using the Laplace transform."
+            }
+          ]
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "question": "Using the convolution theorem, evaluate L^(-1) { s^2 / ((s^2 - a^2)(s^2 + a^2)) }."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": "CO4",
+          "BL": "BL3",
+          "question": "Solve the differential equation 2 * d^2y/dx^2 + 10y = 3*H(t - 12) - 5*delta(t - 4), y(0) = -1, y'(0) = -2."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL3",
+          "question": "Obtain the Fourier series of period 2*pi given by f(x) = { -pi*x - x^2, -pi < x < 0 ; pi*x - x^2, 0 < x < pi }. Deduce the sum of the series sum_{n=1}^{infinity} 1/n^2."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL2",
+          "question": "Find the half-range cosine series of the function f(x) = 6x^2 - 6x + 1, in (0, 1) and deduce the sum of the series sum_{n=1}^{infinity} (-1)^n / n^2."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 8,
+      "slot": "C1+TC1+TCC1",
+      "semester": "Winter Semester 2024-2025",
+      "programme": "B.Tech",
+      "date_of_examination": "18-03-2025",
+      "general_instruction": "Answer All Questions",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": 2,
+          "BL": 2,
+          "sub_parts": [
+            {
+              "part": "a",
+              "marks": 5,
+              "question": "Evaluate integral from 0 to infinity of e^(-2t) * t * u(t - 1) dt using Laplace transform."
+            },
+            {
+              "part": "b",
+              "marks": 5,
+              "question": "Find the Laplace transform of a periodic function f(t) = { 1, if 0 < t < 1 ; t, if 1 < t < 2 } with period 2."
+            }
+          ]
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": 2,
+          "BL": 2,
+          "question": "Find the inverse Laplace transform of 1 / (s*(s^2 + 2s + 2)) using Convolution Theorem."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": 4,
+          "BL": 3,
+          "question": "Solve the equation L * d^2q/dt^2 + R * dq/dt + q/C = 0, where L = 1 henry, R = 3 ohms, C = 0.5 farads. Find the charge q at any time t, given that q(0) = 0 and q'(0) = 3 using Laplace transform."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": 4,
+          "BL": 3,
+          "question": "Obtain the solution of u_x + u_t + u = 0 with u(0, t) = 0 (t > 0), u(x, 0) = cos(x) (x > 0) using Laplace transform."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": 3,
+          "BL": 2,
+          "question": "Obtain the Fourier series of f(x) = x^3 - pi^2 * x in the interval (-pi, pi)."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 9,
+      "slot": "C2",
+      "semester": "Winter Semester 2022-2023",
+      "programme": "B.Tech",
+      "general_instruction": "Answer all the questions",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL3",
+          "question": "Find the Laplace transform of the triangular wave of period 2E given by f(t) = { 3t, 0 < t < E ; 6E - 3t, E < t < 2E }."
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL3",
+          "question": "Using Convolution theorem find the inverse Laplace transform of 1 / (s^2 + 4s + 13)^2."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": "CO4",
+          "BL": "BL4",
+          "question": "Using Laplace transform, solve y''(t) - y'(t) = cos(2t) - cos(2t - 12) * u(t - 6), with y(0) = -4, y'(0) = 0."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": "CO4",
+          "BL": "BL4",
+          "question": "Using Laplace transform, solve du/dx + du/dt - 4u = x, x > 0, t > 0 with conditions u(0, t) = 0, t > 0 and u(x, 0) = sin(x), x > 0."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": "CO5",
+          "BL": "BL5",
+          "question": "Expand the function f(x) = x * sin(x) as a Fourier series in the interval 0 <= x <= 2*pi. Hence, find 1/(1*3) - 1/(3*5) + 1/(5*7) - 1/(7*9) + ..."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 10,
+      "slot": "C2+TC2+TCC2",
+      "semester": "Winter Semester 2023-2024",
+      "programme": "B.Tech",
+      "general_instruction": "Students are permitted to bring one text book / hand written note book only. Answer ALL the Questions.",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "question": "Express the function f(t) = { 3t/2, 0 <= t < 2 ; 6 - 3t/2, 2 <= t < 4 ; 0, t >= 4 } in terms of unit step function and hence find the Laplace transform of f(t)."
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "question": "Find the inverse Laplace transform of 10 / ((s + 1)(s^2 + 4)) using convolution theorem."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": "CO4",
+          "BL": "BL3",
+          "question": "Solve d^2y/dt^2 + y = 3*delta(t - 1) + 2*delta(t) with y(0) = 0, dy/dt(0) = 0, using Laplace transform."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL3",
+          "question": "Obtain the Fourier series for f(t) = 1 + t + t^2 in the interval (-pi, pi). Hence find the sum 1/1^2 + 1/2^2 + 1/3^2 + 1/4^2 + ..."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": "CO3",
+          "BL": "BL2",
+          "question": "Find the half-range cosine series for the function f(t) = { lambda*t, for 0 < t < 1/2 ; lambda*(1 - t), for 1/2 < t < 1 }."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 11,
+      "slot": "C2+TC2+TCC2",
+      "semester": "Winter Semester 2024-2025",
+      "programme": "B.Tech",
+      "date_of_examination": "18-03-2025",
+      "general_instruction": "Answer All Questions",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "question": "Express the following function in terms of unit step function and hence find its Laplace transform: f(t) = { t^2, 0 < t < 1 ; 2, 1 < t < 2 ; e^(-1), t > 2 }."
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "CO": "CO2",
+          "BL": "BL2",
+          "question": "Using partial fractions method evaluate L^(-1) { (s^2 + 2s + 4) / ((s + 5)(s^2 + 16)) }."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "CO": "CO5",
+          "BL": "BL3",
+          "question": "The displacement of the mass which is suspended at one end of a spring is given by m * d^2x/dt^2 + r * dx/dt + cx = E(t), where m is mass, r is damping constant and k is spring constant. Using Laplace transform find the displacement when m = 1, r = 6, c = 5 and E(t) = 4*u(t - pi) with x(0) = 0, x'(0) = 0."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "CO": "CO5",
+          "BL": "BL3",
+          "question": "Apply Laplace transform method to solve du/dx + du/dt = cos(x), (x > 0, t > 0), with u(x, 0) = 0, x > 0, u(0, t) = 0, t > 0."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "CO": "CO4",
+          "BL": "BL2",
+          "question": "Obtain the Fourier series for the function f(x) = { -3x, -2 < x < 0 ; 3x, 0 < x < 2 }."
+        }
+      ]
+    },
+
+    {
+      "paper_id": 12,
+      "slot": "D2+TD2+TDD2",
+      "semester": "Winter Semester 2023-2024",
+      "programme": "B.Tech",
+      "general_instruction": "Only hand written notes and text books permitted. Answer all the questions (5 x 10 = 50 marks).",
+      "questions": [
+        {
+          "q_no": 1,
+          "marks": 10,
+          "sub_parts": [
+            {
+              "part": "a",
+              "question": "Find the Laplace transform of f(t) = t*(3*sin(2t) - 2*cos(2t))."
+            },
+            {
+              "part": "b",
+              "question": "Find the Laplace transform of f(t) = { -0.5t + 1, 0 <= t <= 1 ; 0, t > 1 }."
+            }
+          ]
+        },
+        {
+          "q_no": 2,
+          "marks": 10,
+          "question": "Find the inverse Laplace transform of s^2 / ((s^2 + 9)(s^2 + 25)) using Convolution theorem."
+        },
+        {
+          "q_no": 3,
+          "marks": 10,
+          "question": "Solve the differential equation y'' + 5y' + 6y = u(t - 1) + delta(t - 2), y(0) = 0, y'(0) = 1, using method of Laplace Transform."
+        },
+        {
+          "q_no": 4,
+          "marks": 10,
+          "question": "Expand f(x) = x + |x|, (-pi < x < pi) in a Fourier series."
+        },
+        {
+          "q_no": 5,
+          "marks": 10,
+          "question": "Find the half range cosine series of the function f(x) = { 0, 0 < x < pi/2 ; x, pi/2 < x < pi }."
+        }
+      ]
+    }
+
+  ]
+}
