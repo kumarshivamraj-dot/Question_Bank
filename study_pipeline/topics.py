@@ -123,6 +123,7 @@ def canonicalize_topic(topic: str) -> str | None:
     titled = normalized.title()
     titled = titled.replace("Ieee", "IEEE").replace("Dma", "DMA").replace("Io", "I/O")
     titled = titled.replace("Rom", "ROM").replace("Ram", "RAM").replace("Cpu", "CPU")
+    titled = titled.replace("Sql", "SQL").replace("Dbms", "DBMS").replace("Os", "OS")
     return titled
 
 

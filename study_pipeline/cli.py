@@ -18,7 +18,9 @@ def ingest_command(args: argparse.Namespace) -> int:
     from study_pipeline.chunking import chunk_page
     from study_pipeline.extract import extract_document
     from study_pipeline.json_input import load_question_json
+    from study_pipeline.pdf_linker import link_questions_to_pdf
     from study_pipeline.questions import extract_questions
+    from study_pipeline.topic_classifier import infer_primary_topics
     from study_pipeline.vision import extract_pyq_questions_with_vision_fallback
 
     provider = build_embedding_provider(
@@ -32,6 +34,7 @@ def ingest_command(args: argparse.Namespace) -> int:
         path = Path(raw_path).expanduser().resolve()
         if path.suffix.lower() == ".json":
             pages, questions = load_question_json(path)
+            questions = link_questions_to_pdf(args.subject, path, questions)
         else:
             pages = extract_document(path, ocr_lang=args.ocr_lang)
             questions = []
@@ -52,6 +55,22 @@ def ingest_command(args: argparse.Namespace) -> int:
         for page in pages:
             chunks.extend(chunk_page(page, target_size=args.chunk_size))
 
+        if questions:
+            existing_catalog = store.get_subject_topic_catalog(args.subject)
+            existing_texts = store.subject_question_texts(args.subject)
+            syllabus_text = store.get_subject_syllabus(args.subject)
+            catalog, questions = infer_primary_topics(
+                subject=args.subject,
+                questions=questions,
+                existing_question_texts=existing_texts,
+                existing_topics=existing_catalog,
+                syllabus_text=syllabus_text,
+                base_url=args.topic_ollama_url,
+                model=args.topic_ollama_model,
+            )
+            if catalog:
+                store.set_subject_topic_catalog(args.subject, catalog)
+
         store.upsert_document(
             path=str(path),
             name=path.name,
@@ -70,6 +89,7 @@ def ingest_command(args: argparse.Namespace) -> int:
                     "pages": len(pages),
                     "chunks": len(chunks),
                     "questions": len(questions),
+                    "topic_catalog_size": len(store.get_subject_topic_catalog(args.subject)),
                 }
             )
         )
@@ -110,6 +130,7 @@ def questions_command(args: argparse.Namespace) -> int:
         print(
             f"{index}. [{row['subject']}] {row['name']} page {row['page_number']} ({row['source_type']})"
         )
+        print(f"   primary topic: {row['primary_topic'] or '-'}")
         print(f"   topics: {topics or '-'}")
         print(f"   path: {row['path']}")
         print(f"   text: {prefix}{row['text'][:500].replace(chr(10), ' ')}")
@@ -152,6 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--ollama-model", default="nomic-embed-text")
     parser.add_argument("--ollama-url", default="http://localhost:11434")
+    parser.add_argument("--topic-ollama-model", default="llama3")
+    parser.add_argument("--topic-ollama-url", default="http://localhost:11434")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 

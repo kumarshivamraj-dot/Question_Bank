@@ -30,6 +30,14 @@ class Question:
     question_number: str | None
     text: str
     topics: list[str] = field(default_factory=list)
+    primary_topic: str | None = None
+    has_diagram: bool = False
+    source_pdf_path: str | None = None
+    source_pdf_name: str | None = None
+    source_pdf_page: int | None = None
+    original_image_path: str | None = None
+    diagram_image_path: str | None = None
+    link_confidence: float | None = None
 
 
 @dataclass(slots=True)

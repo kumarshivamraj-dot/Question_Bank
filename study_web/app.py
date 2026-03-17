@@ -4,9 +4,10 @@ import json
 import os
 import shutil
 from pathlib import Path
+from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from study_pipeline.embeddings import HashingEmbeddingProvider, OllamaEmbeddingProvider
 from study_pipeline.store import StudyStore
@@ -14,11 +15,15 @@ from study_pipeline.topics import canonicalize_topics
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-UPLOAD_ROOT = BASE_DIR / "data" / "uploads"
+UPLOAD_ROOT = Path(os.environ.get("STUDY_UPLOAD_ROOT", BASE_DIR / "data" / "uploads"))
 DB_PATH = Path(os.environ.get("STUDY_DB_PATH", BASE_DIR / "data" / "processed" / "study_index.db"))
 EMBEDDING_PROVIDER = os.environ.get("STUDY_EMBEDDING_PROVIDER", "hashing")
 OLLAMA_MODEL = os.environ.get("STUDY_OLLAMA_MODEL", "nomic-embed-text")
 OLLAMA_URL = os.environ.get("STUDY_OLLAMA_URL", "http://localhost:11434")
+TOPIC_OLLAMA_MODEL = os.environ.get("STUDY_TOPIC_OLLAMA_MODEL", "llama3")
+TOPIC_OLLAMA_URL = os.environ.get("STUDY_TOPIC_OLLAMA_URL", OLLAMA_URL)
+ORIGINAL_ASSET_ROOT = Path(os.environ.get("STUDY_ORIGINAL_ASSET_ROOT", BASE_DIR / "data" / "processed" / "original_views"))
+ADMIN_KEY = os.environ.get("STUDY_ADMIN_KEY", "").strip()
 
 app = FastAPI(title="Study Index")
 
@@ -36,6 +41,58 @@ def get_store() -> StudyStore:
 def safe_filename(name: str) -> str:
     cleaned = "".join(char if char.isalnum() or char in "._-" else "_" for char in name)
     return cleaned or "upload.bin"
+
+
+def asset_url(path: str | None) -> str | None:
+    if not path:
+        return None
+    try:
+        resolved = Path(path).resolve()
+    except OSError:
+        return None
+    try:
+        relative = resolved.relative_to(ORIGINAL_ASSET_ROOT.resolve())
+    except ValueError:
+        return None
+    return f"/api/assets/original?path={quote(relative.as_posix())}"
+
+
+def question_payload(row) -> dict:
+    original_image_path = row["original_image_path"]
+    diagram_image_path = row["diagram_image_path"]
+    source_pdf_name = row["source_pdf_name"]
+    if not original_image_path and row["source_pdf_page"]:
+        from study_pipeline.pdf_linker import materialize_original_asset
+
+        original_image_path, diagram_image_path, source_pdf_name = materialize_original_asset(
+            subject=row["subject"],
+            document_path=row["path"],
+            question_number=row["question_number"],
+            text=row["text"],
+            has_diagram=bool(row["has_diagram"]),
+            source_pdf_name=row["source_pdf_name"],
+            source_pdf_page=row["source_pdf_page"],
+        )
+    return {
+        "subject": row["subject"],
+        "source_type": row["source_type"],
+        "document": row["name"],
+        "page": row["page_number"],
+        "question_number": row["question_number"],
+        "primary_topic": row["primary_topic"],
+        "has_diagram": bool(row["has_diagram"]),
+        "topics": canonicalize_topics(json.loads(row["topics_json"])),
+        "path": row["path"],
+        "text": row["text"],
+        "source_pdf_path": row["source_pdf_path"],
+        "source_pdf_name": source_pdf_name,
+        "source_pdf_page": row["source_pdf_page"],
+        "original_image_path": original_image_path,
+        "diagram_image_path": diagram_image_path,
+        "original_view_url": asset_url(original_image_path),
+        "diagram_url": asset_url(diagram_image_path),
+        "link_confidence": row["link_confidence"],
+    }
 
 
 def save_upload(subject: str, source_type: str, file: UploadFile) -> Path:
@@ -56,15 +113,25 @@ def save_upload(subject: str, source_type: str, file: UploadFile) -> Path:
     return destination
 
 
+def verify_admin(x_admin_key: str | None) -> None:
+    if not ADMIN_KEY:
+        return
+    if (x_admin_key or "").strip() != ADMIN_KEY:
+        raise HTTPException(status_code=403, detail="Admin key required")
+
+
 def ingest_path(path: Path, subject: str, source_type: str, vision_provider: str, ocr_lang: str, chunk_size: int) -> dict:
     from study_pipeline.chunking import chunk_page
     from study_pipeline.extract import extract_document
     from study_pipeline.json_input import load_question_json
+    from study_pipeline.pdf_linker import link_questions_to_pdf
     from study_pipeline.questions import extract_questions
+    from study_pipeline.topic_classifier import infer_primary_topics
     from study_pipeline.vision import extract_pyq_questions_with_vision_fallback
 
     if path.suffix.lower() == ".json":
         pages, questions = load_question_json(path)
+        questions = link_questions_to_pdf(subject, path, questions)
     else:
         pages = extract_document(path, ocr_lang=ocr_lang)
         questions = []
@@ -86,15 +153,33 @@ def ingest_path(path: Path, subject: str, source_type: str, vision_provider: str
         chunks.extend(chunk_page(page, target_size=chunk_size))
 
     store = get_store()
-    store.upsert_document(
-        path=str(path),
-        name=path.name,
-        subject=subject,
-        kind=path.suffix.lower().lstrip("."),
-        source_type=source_type,
-        chunks=chunks,
-        questions=questions,
-    )
+    try:
+        if questions:
+            existing_catalog = store.get_subject_topic_catalog(subject)
+            existing_texts = store.subject_question_texts(subject)
+            syllabus_text = store.get_subject_syllabus(subject)
+            catalog, questions = infer_primary_topics(
+                subject=subject,
+                questions=questions,
+                existing_question_texts=existing_texts,
+                existing_topics=existing_catalog,
+                syllabus_text=syllabus_text,
+                base_url=TOPIC_OLLAMA_URL,
+                model=TOPIC_OLLAMA_MODEL,
+            )
+            if catalog:
+                store.set_subject_topic_catalog(subject, catalog)
+        store.upsert_document(
+            path=str(path),
+            name=path.name,
+            subject=subject,
+            kind=path.suffix.lower().lstrip("."),
+            source_type=source_type,
+            chunks=chunks,
+            questions=questions,
+        )
+    finally:
+        store.close()
     return {
         "subject": subject,
         "source_type": source_type,
@@ -126,6 +211,7 @@ def remove_database_file() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
+    admin_protected = "true" if bool(ADMIN_KEY) else "false"
     return """
 <!doctype html>
 <html lang="en">
@@ -145,6 +231,17 @@ def index() -> str:
       --accent-warm: #8c6a3c;
       --canvas: #f4f6ef;
     }
+    body.dark-mode {
+      --ink: #e6efe4;
+      --muted: #9cb09d;
+      --line: #34423b;
+      --panel: rgba(20, 28, 24, 0.9);
+      --panel-strong: #18221d;
+      --accent: #8db39d;
+      --accent-soft: rgba(141, 179, 157, 0.16);
+      --accent-warm: #b28c58;
+      --canvas: #0f1512;
+    }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -155,10 +252,20 @@ def index() -> str:
         radial-gradient(circle at top left, rgba(36, 76, 59, 0.08), transparent 24%),
         linear-gradient(180deg, #f7f8f3 0%, #eef1e6 100%);
     }
+    body.dark-mode {
+      background:
+        radial-gradient(circle at top left, rgba(141, 179, 157, 0.12), transparent 24%),
+        linear-gradient(180deg, #141b17 0%, #0e1411 100%);
+    }
     .shell {
       max-width: 1040px;
       margin: 0 auto;
       padding: 18px 14px 28px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 8px;
     }
     .hero {
       display: grid;
@@ -184,6 +291,13 @@ def index() -> str:
       padding: 12px;
       box-shadow: 0 8px 18px rgba(28, 38, 28, 0.04);
     }
+    body.dark-mode .panel,
+    body.dark-mode .result-card,
+    body.dark-mode .topic-sidebar {
+      background: rgba(20, 28, 24, 0.94);
+      border-color: #34423b;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+    }
     .panel h2 {
       margin: 0;
       font-size: 0.98rem;
@@ -207,6 +321,38 @@ def index() -> str:
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+    }
+    .theme-toggle {
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      background: var(--panel);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      box-shadow: 0 8px 18px rgba(28, 38, 28, 0.06);
+      font-size: 1.05rem;
+    }
+    body.dark-mode .theme-toggle {
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.26);
+    }
+    body.dark-mode .result-text,
+    body.dark-mode .question-card .result-text,
+    body.dark-mode .panel h2,
+    body.dark-mode .hero h1,
+    body.dark-mode .figure-label {
+      color: #f4f8f2;
+    }
+    body.dark-mode .panel-note,
+    body.dark-mode .result-meta,
+    body.dark-mode .counter,
+    body.dark-mode .original-meta,
+    body.dark-mode .hero p,
+    body.dark-mode .eyebrow,
+    body.dark-mode label {
+      color: #b8c7ba;
     }
     .subjectDashboard {
       display: grid;
@@ -267,10 +413,22 @@ def index() -> str:
       transform: translateX(0);
     }
     .sidebar-head {
+      display: grid;
+      gap: 8px;
+    }
+    .sidebar-topline {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
+    }
+    .sidebar-switch {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .sidebar-switch .tab {
+      padding: 7px 11px;
     }
     .meta-pill {
       display: inline-flex;
@@ -296,14 +454,21 @@ def index() -> str:
       text-transform: uppercase;
       letter-spacing: 0.1em;
     }
-    input, select, button { font: inherit; }
-    input, select {
+    input, select, textarea, button { font: inherit; }
+    input, select, textarea {
       width: 100%;
       padding: 9px 11px;
       border-radius: 10px;
       border: 1px solid var(--line);
       background: white;
       color: var(--ink);
+    }
+    body.dark-mode input,
+    body.dark-mode select,
+    body.dark-mode textarea {
+      background: #121916;
+      color: #f4f8f2;
+      border-color: #34423b;
     }
     .subject-row input { max-width: 240px; }
     button {
@@ -332,6 +497,11 @@ def index() -> str:
       color: white;
       border-color: transparent;
     }
+    body.dark-mode .tab {
+      background: rgba(18, 25, 22, 0.88);
+      color: #e6efe4;
+      border-color: #34423b;
+    }
     .dropzone {
       border: 1px dashed rgba(36, 76, 59, 0.35);
       border-radius: 12px;
@@ -342,6 +512,10 @@ def index() -> str:
       text-align: center;
       background: rgba(255,255,255,0.55);
       transition: 160ms ease;
+    }
+    body.dark-mode .dropzone {
+      background: rgba(18, 25, 22, 0.76);
+      border-color: rgba(141, 179, 157, 0.28);
     }
     .dropzone.dragover {
       border-color: var(--accent);
@@ -391,9 +565,48 @@ def index() -> str:
       display: grid;
       gap: 8px;
     }
+    body.dark-mode .result-card {
+      background: linear-gradient(180deg, rgba(24, 34, 29, 0.98), rgba(16, 23, 20, 0.96));
+    }
     .question-viewer {
       display: grid;
       gap: 10px;
+    }
+    .question-frame {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+    .copy-rail {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+    }
+    .copy-question-btn {
+      min-width: 0;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border: 1px solid rgba(36, 76, 59, 0.14);
+    }
+    .copy-question-btn.copied {
+      background: var(--accent);
+      color: white;
+    }
+    .bookmark-icon-btn {
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      font-size: 1.05rem;
+      line-height: 1;
+    }
+    .copy-question-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
     .question-nav {
       display: flex;
@@ -463,6 +676,9 @@ def index() -> str:
       justify-items: center;
       text-align: center;
     }
+    body.dark-mode .question-card {
+      background: linear-gradient(180deg, rgba(22, 31, 27, 0.99), rgba(10, 15, 13, 0.98));
+    }
     .question-card .result-meta,
     .question-card .result-text,
     .question-card .topic-row {
@@ -475,6 +691,41 @@ def index() -> str:
       font-size: 1rem;
       line-height: 1.55;
     }
+    .original-panel {
+      display: grid;
+      gap: 10px;
+      text-align: left;
+      justify-items: stretch;
+    }
+    .original-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .original-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+    .original-figure {
+      display: grid;
+      gap: 6px;
+    }
+    .original-figure img {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: white;
+    }
+    .figure-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
     .result-path {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.74rem;
@@ -485,6 +736,28 @@ def index() -> str:
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
+    }
+    .workflow-steps {
+      display: grid;
+      gap: 8px;
+    }
+    .workflow-step {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.5);
+      display: grid;
+      gap: 4px;
+    }
+    body.dark-mode .workflow-step {
+      background: rgba(18, 25, 22, 0.72);
+    }
+    .workflow-kicker {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
     }
     .single-column {
       grid-column: 1 / -1;
@@ -503,6 +776,9 @@ def index() -> str:
 </head>
 <body>
   <div class="shell">
+    <div class="topbar">
+      <button id="themeToggleBtn" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">☾</button>
+    </div>
     <section class="hero">
       <div class="eyebrow">PYQ Topic Navigator</div>
       <h1>Pick a subject. Open a topic. See the actual questions.</h1>
@@ -530,7 +806,7 @@ def index() -> str:
 
     <section id="emptyState" class="panel stack">
       <h2>No Subject Open</h2>
-      <div class="panel-note">Open an existing subject from the tabs, or type a new subject name and ingest a PYQ file.</div>
+      <div class="panel-note">Open an existing subject or create a new one, then follow the workflow: syllabus first, cleaned JSON second, original PDF third.</div>
     </section>
 
     <section id="subjectDashboard" class="hidden">
@@ -551,8 +827,25 @@ def index() -> str:
       <section id="adminView" class="hidden">
         <section id="ingestPanel" class="panel stack">
           <div class="panel-head">
-            <h2>Ingest More Files</h2>
-            <div class="panel-note">Only admins should add or remove material. Practice users stay in the question view.</div>
+            <h2>Subject Workflow</h2>
+            <div class="panel-note">Set the syllabus first, then upload the cleaned question JSON, then upload the original PDF for page-based original view.</div>
+          </div>
+          <div class="workflow-steps">
+            <div class="workflow-step">
+              <div class="workflow-kicker">Step 1</div>
+              <strong>Paste and save the syllabus.</strong>
+              <div class="panel-note">These syllabus topics become the allowed topic catalog for this subject.</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-kicker">Step 2</div>
+              <strong>Upload the cleaned JSON of questions.</strong>
+              <div class="panel-note">The JSON should already contain clean question text and, when needed, the mapped `source_pdf_name` and `source_pdf_page`.</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-kicker">Step 3</div>
+              <strong>Upload the original PYQ PDF.</strong>
+              <div class="panel-note">The `Original` button will render the mapped page from this PDF.</div>
+            </div>
           </div>
           <div class="mini-grid">
             <div class="field">
@@ -568,8 +861,8 @@ def index() -> str:
             <div class="field">
               <label for="visionProvider">Vision For PYQs</label>
               <select id="visionProvider">
-                <option value="claude_cheap">Claude Cheap Fallback</option>
                 <option value="none">None</option>
+                <option value="claude_cheap">Claude Cheap Fallback</option>
                 <option value="claude">Claude</option>
               </select>
             </div>
@@ -580,17 +873,22 @@ def index() -> str:
           </div>
           <div id="dropzone" class="dropzone">
             <div>
-              <strong>Drop PYQ PDFs or clean question JSON files</strong>
-              <div>Notes and references can still be indexed, but the topic ranking comes from extracted PYQ questions.</div>
+              <strong>Upload one stage at a time</strong>
+              <div>First upload the cleaned JSON. Then upload the original PDF in a separate upload.</div>
               <input id="fileInput" type="file" multiple hidden accept=".pdf,.json,.pptx,.txt,.md">
               <div id="fileList" class="files"></div>
             </div>
           </div>
           <div class="toolbar">
             <button id="uploadBtn">Ingest Files</button>
+            <button id="saveSyllabusBtn" class="secondary">Save Syllabus</button>
             <button id="refreshSubjectBtn" class="secondary">Refresh Subject</button>
             <button id="deleteSubjectBtn" class="secondary">Delete This Subject</button>
             <button id="resetDbBtn" class="secondary">Delete Entire Database</button>
+          </div>
+          <div class="field">
+            <label for="syllabusInput">Syllabus Topics</label>
+            <textarea id="syllabusInput" rows="8" placeholder="Paste the syllabus here. Use one topic per line for the cleanest mapping."></textarea>
           </div>
           <div class="field">
             <label>Status</label>
@@ -603,11 +901,17 @@ def index() -> str:
         <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
         <aside id="topicSidebar" class="topic-sidebar" aria-hidden="true">
           <div class="sidebar-head">
-            <div class="stack">
-              <h2>Important Topics</h2>
-              <div class="panel-note">Most asked first. Click a topic to load the matching PYQ questions.</div>
+            <div class="sidebar-topline">
+              <div class="stack">
+                <h2 id="sidebarTitle">Important Topics</h2>
+                <div id="sidebarHint" class="panel-note">Most asked first. Click a topic to load the matching PYQ questions.</div>
+              </div>
+              <button id="closeSidebarBtn" class="secondary" type="button">Close</button>
             </div>
-            <button id="closeSidebarBtn" class="secondary" type="button">Close</button>
+            <div class="sidebar-switch">
+              <button id="sidebarTopicsBtn" class="tab active" type="button">Topics</button>
+              <button id="sidebarBookmarksBtn" class="tab" type="button">Bookmarks</button>
+            </div>
           </div>
           <div id="topicResults" class="results topic-results">No topics yet.</div>
         </aside>
@@ -651,6 +955,7 @@ def index() -> str:
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const fileList = document.getElementById('fileList');
+    const syllabusInput = document.getElementById('syllabusInput');
     const statusBox = document.getElementById('status');
     const topicResults = document.getElementById('topicResults');
     const topicQuestions = document.getElementById('topicQuestions');
@@ -660,19 +965,29 @@ def index() -> str:
     const prevQuestionBtn = document.getElementById('prevQuestionBtn');
     const nextQuestionBtn = document.getElementById('nextQuestionBtn');
     const topicSidebar = document.getElementById('topicSidebar');
+    const sidebarTitle = document.getElementById('sidebarTitle');
+    const sidebarHint = document.getElementById('sidebarHint');
+    const sidebarTopicsBtn = document.getElementById('sidebarTopicsBtn');
+    const sidebarBookmarksBtn = document.getElementById('sidebarBookmarksBtn');
     const sidebarBackdrop = document.getElementById('sidebarBackdrop');
     const openSidebarBtn = document.getElementById('openSidebarBtn');
     const closeSidebarBtn = document.getElementById('closeSidebarBtn');
     const practiceModeBtn = document.getElementById('practiceModeBtn');
     const adminModeBtn = document.getElementById('adminModeBtn');
+    const themeToggleBtn = document.getElementById('themeToggleBtn');
+    const adminProtected = __ADMIN_PROTECTED__;
     let selectedFiles = [];
     let knownSubjects = [];
     let currentSubject = localStorage.getItem('study.currentSubject') || '';
     let currentTopic = '';
     let activeMode = localStorage.getItem('study.activeMode') || 'practice';
+    let activeTheme = localStorage.getItem('study.theme') || 'light';
+    let adminKey = sessionStorage.getItem('study.adminKey') || '';
     let latestSubjectOverview = null;
     let currentTopicQuestions = [];
     let currentQuestionIndex = 0;
+    let showingBookmarks = false;
+    let sidebarMode = 'topics';
     let sidebarOpen = false;
 
     function escapeHtml(value) {
@@ -693,6 +1008,48 @@ def index() -> str:
       return `<div class="topic-row">${topics.map(topic => `<span class="topic-pill">${escapeHtml(topic)}</span>`).join('')}</div>`;
     }
 
+    function syncSidebarMode() {
+      const bookmarksMode = sidebarMode === 'bookmarks';
+      sidebarTopicsBtn.classList.toggle('active', !bookmarksMode);
+      sidebarBookmarksBtn.classList.toggle('active', bookmarksMode);
+      sidebarTitle.textContent = bookmarksMode ? 'Bookmarked Questions' : 'Important Topics';
+      sidebarHint.textContent = bookmarksMode
+        ? 'Saved questions for this subject. Click one to open it in the viewer.'
+        : 'Most asked first. Click a topic to load the matching PYQ questions.';
+    }
+
+    function renderOriginalPanel(item) {
+      if (!item || !item.showOriginal || !item.original_view_url) {
+        return '';
+      }
+      const source = item.source_pdf_name
+        ? `${escapeHtml(item.source_pdf_name)} page ${escapeHtml(item.source_pdf_page ?? '-')}`
+        : 'Linked PDF source';
+      const confidence = item.link_confidence != null
+        ? `<span>match ${escapeHtml((Number(item.link_confidence) * 100).toFixed(0))}%</span>`
+        : '';
+      return `
+        <section class="result-card original-panel">
+          <div class="original-meta">
+            <span>${source}</span>
+            ${confidence}
+          </div>
+          <div class="original-grid">
+            <figure class="original-figure">
+              <figcaption class="figure-label">Original View</figcaption>
+              <img src="${escapeHtml(item.original_view_url)}" alt="Original question crop">
+            </figure>
+            ${item.diagram_url ? `
+              <figure class="original-figure">
+                <figcaption class="figure-label">Detected Diagram</figcaption>
+                <img src="${escapeHtml(item.diagram_url)}" alt="Detected diagram crop">
+              </figure>
+            ` : ''}
+          </div>
+        </section>
+      `;
+    }
+
     function renderQuestionViewer(items, index) {
       if (!items || !items.length) {
         return renderEmpty('No extracted questions for this topic yet.');
@@ -701,18 +1058,117 @@ def index() -> str:
       const item = items[safeIndex];
       return `
         <div class="question-viewer">
-          <article class="result-card question-card">
-            <div class="result-meta">
-              <span class="chip">${escapeHtml(item.source_type || 'pyq')}</span>
-              <span>${escapeHtml(item.document || '-')}</span>
-              <span>page ${escapeHtml(item.page ?? '-')}</span>
-              ${item.question_number ? `<span class="chip">${escapeHtml(item.question_number)}</span>` : ''}
+          <div class="question-frame">
+            <div class="copy-rail">
+              <button class="copy-question-btn" type="button" data-copy-question="true" aria-label="Copy question text">Copy</button>
+              <button class="copy-question-btn" type="button" data-toggle-original="true" ${item.original_view_url ? '' : 'disabled'} aria-label="Toggle original source">${item.showOriginal ? 'Hide' : 'Original'}</button>
+              <button class="copy-question-btn bookmark-icon-btn ${item.bookmarked ? 'copied' : ''}" type="button" data-bookmark-question="true" aria-label="Bookmark question" title="${item.bookmarked ? 'Remove bookmark' : 'Add bookmark'}">${item.bookmarked ? '★' : '☆'}</button>
             </div>
-            <div class="result-text">${escapeHtml(item.text || '')}</div>
-            ${renderTopics(item.topics || [])}
-          </article>
+            <article class="result-card question-card">
+              <div class="result-meta">
+                <span class="chip">${escapeHtml(item.source_type || 'pyq')}</span>
+                <span>${escapeHtml(item.document || '-')}</span>
+                <span>page ${escapeHtml(item.page ?? '-')}</span>
+                ${item.question_number ? `<span class="chip">${escapeHtml(item.question_number)}</span>` : ''}
+                ${item.has_diagram ? `<span class="chip">[Diagram]</span>` : ''}
+              </div>
+              <div class="result-text">${escapeHtml(item.text || '')}</div>
+              ${renderTopics(item.topics || [])}
+            </article>
+          </div>
+          ${renderOriginalPanel(item)}
         </div>
       `;
+    }
+
+    async function copyCurrentQuestion(button) {
+      const item = currentTopicQuestions[currentQuestionIndex];
+      if (!item || !item.text) {
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(String(item.text));
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        button.classList.add('copied');
+        window.setTimeout(() => {
+          button.textContent = original;
+          button.classList.remove('copied');
+        }, 1200);
+      } catch (error) {
+        window.alert('Copy failed. Your browser blocked clipboard access.');
+      }
+    }
+
+    async function toggleBookmarkCurrentQuestion(button) {
+      const item = currentTopicQuestions[currentQuestionIndex];
+      if (!item || !currentSubject) {
+        return;
+      }
+      const method = item.bookmarked ? 'DELETE' : 'POST';
+      const response = await fetch('/api/bookmarks', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: currentSubject,
+          path: item.path,
+          document: item.document,
+          source_type: item.source_type,
+          page: item.page,
+          question_number: item.question_number,
+          text: item.text,
+          primary_topic: item.primary_topic,
+          has_diagram: Boolean(item.has_diagram),
+          source_pdf_path: item.source_pdf_path,
+          source_pdf_name: item.source_pdf_name,
+          source_pdf_page: item.source_pdf_page,
+          original_image_path: item.original_image_path,
+          diagram_image_path: item.diagram_image_path,
+          link_confidence: item.link_confidence,
+          topics: item.topics || [],
+        }),
+      });
+      if (!response.ok) {
+        window.alert('Could not update bookmark.');
+        return;
+      }
+      item.bookmarked = !item.bookmarked;
+      button.textContent = item.bookmarked ? '★' : '☆';
+      button.setAttribute('title', item.bookmarked ? 'Remove bookmark' : 'Add bookmark');
+      button.classList.toggle('copied', item.bookmarked);
+      if (showingBookmarks && !item.bookmarked) {
+        currentTopicQuestions.splice(currentQuestionIndex, 1);
+        if (currentQuestionIndex >= currentTopicQuestions.length) {
+          currentQuestionIndex = Math.max(0, currentTopicQuestions.length - 1);
+        }
+        renderCurrentQuestion();
+      }
+    }
+
+    function toggleOriginalCurrentQuestion() {
+      const item = currentTopicQuestions[currentQuestionIndex];
+      if (!item || !item.original_view_url) {
+        return;
+      }
+      item.showOriginal = !item.showOriginal;
+      renderCurrentQuestion();
+    }
+
+    function renderBookmarksPayload(items) {
+      if (!items || !items.length) {
+        return renderEmpty('No bookmarks yet for this subject.');
+      }
+      return items.map((item, index) => `
+        <button class="topic-card" data-bookmark-index="${escapeHtml(index)}" type="button">
+          <div class="result-meta">
+            <span>${escapeHtml(item.document || '-')}</span>
+            <span>page ${escapeHtml(item.page ?? '-')}</span>
+            ${item.question_number ? `<span class="chip">${escapeHtml(item.question_number)}</span>` : ''}
+          </div>
+          <div class="result-text">${escapeHtml((item.text || '').slice(0, 180))}</div>
+          ${item.primary_topic ? `<div class="panel-note">${escapeHtml(item.primary_topic)}</div>` : ''}
+        </button>
+      `).join('');
     }
 
     function updateQuestionNavigation() {
@@ -738,7 +1194,39 @@ def index() -> str:
 
     function setSidebarOpen(value) {
       sidebarOpen = Boolean(value);
+      syncSidebarMode();
       syncSidebar();
+    }
+
+    function syncTheme() {
+      const isDark = activeTheme === 'dark';
+      document.body.classList.toggle('dark-mode', isDark);
+      themeToggleBtn.textContent = isDark ? '☀' : '☾';
+      themeToggleBtn.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+      themeToggleBtn.setAttribute('title', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+    }
+
+    function adminHeaders(extra = { }) {
+      return adminKey ? { ...extra, 'x-admin-key': adminKey } : extra;
+    }
+
+    async function ensureAdminAccess() {
+      if (!adminProtected) {
+        return true;
+      }
+      if (adminKey) {
+        return true;
+      }
+      const entered = window.prompt('Enter admin key');
+      if (!entered) {
+        return false;
+      }
+      adminKey = entered.trim();
+      if (!adminKey) {
+        return false;
+      }
+      sessionStorage.setItem('study.adminKey', adminKey);
+      return true;
     }
 
     function syncMode() {
@@ -750,7 +1238,7 @@ def index() -> str:
       if (isAdmin) {
         setSidebarOpen(false);
         subjectHint.textContent = currentSubject
-          ? `Admin mode for ${currentSubject}. Ingest and maintenance tools are enabled.`
+          ? `Admin mode for ${currentSubject}. Workflow: save syllabus, upload cleaned JSON, then upload original PDF.`
           : 'Admin mode. Open a subject to manage its content.';
         return;
       }
@@ -897,12 +1385,29 @@ def index() -> str:
     });
 
     async function uploadFiles() {
+      if (!(await ensureAdminAccess())) {
+        return;
+      }
       if (!currentSubject) {
         setStatus('Create or select a subject first.');
         return;
       }
+      if (!syllabusInput.value.trim()) {
+        setStatus('Step 1 is required: paste and save the syllabus before uploading files.');
+        return;
+      }
       if (!selectedFiles.length) {
         setStatus('Choose at least one file.');
+        return;
+      }
+      const hasJson = selectedFiles.some(file => file.name.toLowerCase().endsWith('.json'));
+      const hasPdf = selectedFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
+      if (hasJson && hasPdf) {
+        setStatus('Upload the cleaned JSON first and the original PDF in a separate upload.');
+        return;
+      }
+      if (hasPdf && Number(latestSubjectOverview?.totals?.questions ?? 0) === 0) {
+        setStatus('Upload the cleaned JSON first. The original PDF should come after the questions exist for this subject.');
         return;
       }
 
@@ -913,9 +1418,13 @@ def index() -> str:
       formData.append('ocr_lang', document.getElementById('ocrLang').value);
       selectedFiles.forEach(file => formData.append('files', file));
 
-      setStatus('Uploading and indexing...');
-      const response = await fetch('/api/ingest', { method: 'POST', body: formData });
+      setStatus(hasJson ? 'Uploading cleaned JSON...' : 'Uploading original PDF...');
+      const response = await fetch('/api/ingest', { method: 'POST', body: formData, headers: adminHeaders() });
       const payload = await response.json();
+      if (response.status === 403) {
+        adminKey = '';
+        sessionStorage.removeItem('study.adminKey');
+      }
       setStatus(payload);
       if (response.ok) {
         await loadStats();
@@ -929,6 +1438,8 @@ def index() -> str:
         return;
       }
       currentTopic = topic;
+      sidebarMode = 'topics';
+      showingBookmarks = false;
       currentTopicQuestions = [];
       currentQuestionIndex = 0;
       selectedTopicLabel.textContent = topic;
@@ -937,6 +1448,7 @@ def index() -> str:
       topicResults.querySelectorAll('[data-topic]').forEach(button => {
         button.addEventListener('click', () => loadTopicQuestions(button.dataset.topic));
       });
+      syncSidebarMode();
       topicQuestions.innerHTML = renderEmpty('Loading questions...');
       updateQuestionNavigation();
       const params = new URLSearchParams({ subject: currentSubject, topic, limit: '120' });
@@ -955,12 +1467,14 @@ def index() -> str:
       const response = await fetch(`/api/subject-overview?subject=${encodeURIComponent(currentSubject)}`);
       const payload = await response.json();
       latestSubjectOverview = payload;
+      sidebarMode = 'topics';
       topicResults.innerHTML = renderTopicPayload(payload);
       topicResults.querySelectorAll('[data-topic]').forEach(button => {
         button.addEventListener('click', () => loadTopicQuestions(button.dataset.topic));
       });
       overviewQuestions.textContent = String(payload.totals?.questions ?? 0);
       overviewDocuments.textContent = String(payload.totals?.documents ?? 0);
+      syllabusInput.value = payload.syllabus_text || '';
       const topics = payload.question_topics || [];
       if (topics.length) {
         const nextTopic = topics.find(item => item.topic === currentTopic)?.topic || topics[0].topic;
@@ -983,7 +1497,74 @@ def index() -> str:
       renderSubjectTabs();
     }
 
+    async function saveSyllabus() {
+      if (!(await ensureAdminAccess())) {
+        return;
+      }
+      if (!currentSubject) {
+        setStatus('Open a subject first.');
+        return;
+      }
+      const response = await fetch('/api/syllabus', {
+        method: 'POST',
+        headers: adminHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          subject: currentSubject,
+          syllabus_text: syllabusInput.value || '',
+        }),
+      });
+      const payload = await response.json();
+      if (response.status === 403) {
+        adminKey = '';
+        sessionStorage.removeItem('study.adminKey');
+      }
+      if (!response.ok) {
+        setStatus(payload.detail || 'Could not save syllabus.');
+        return;
+      }
+      setStatus('Syllabus saved. Future topic mapping will stay within these syllabus topics.');
+      await loadSubjectOverview();
+    }
+
+    async function loadBookmarks() {
+      if (!currentSubject) {
+        return;
+      }
+      sidebarMode = 'bookmarks';
+      showingBookmarks = true;
+      currentTopic = '';
+      const response = await fetch(`/api/bookmarks?subject=${encodeURIComponent(currentSubject)}`);
+      const payload = await response.json();
+      currentTopicQuestions = payload.results || [];
+      topicResults.innerHTML = renderBookmarksPayload(currentTopicQuestions);
+      topicResults.querySelectorAll('[data-bookmark-index]').forEach(button => {
+        button.addEventListener('click', () => {
+          const nextIndex = Number(button.dataset.bookmarkIndex || '0');
+          currentQuestionIndex = Number.isFinite(nextIndex) ? nextIndex : 0;
+          selectedTopicLabel.textContent = 'Bookmarked Questions';
+          questionHint.textContent = `Saved questions for ${currentSubject}.`;
+          renderCurrentQuestion();
+          setSidebarOpen(false);
+        });
+      });
+      syncSidebarMode();
+      if (!currentTopicQuestions.length) {
+        selectedTopicLabel.textContent = 'Bookmarked Questions';
+        questionHint.textContent = `Saved questions for ${currentSubject}.`;
+        topicQuestions.innerHTML = renderEmpty('No bookmarks yet.');
+        updateQuestionNavigation();
+        return;
+      }
+      currentQuestionIndex = 0;
+      selectedTopicLabel.textContent = 'Bookmarked Questions';
+      questionHint.textContent = `Saved questions for ${currentSubject}.`;
+      renderCurrentQuestion();
+    }
+
     async function deleteSubject() {
+      if (!(await ensureAdminAccess())) {
+        return;
+      }
       if (!currentSubject) {
         setStatus('Select a subject first.');
         return;
@@ -993,8 +1574,13 @@ def index() -> str:
       }
       const response = await fetch(`/api/subjects/${encodeURIComponent(currentSubject)}`, {
         method: 'DELETE',
+        headers: adminHeaders(),
       });
       const payload = await response.json();
+      if (response.status === 403) {
+        adminKey = '';
+        sessionStorage.removeItem('study.adminKey');
+      }
       setStatus(typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2));
       currentSubject = '';
       localStorage.removeItem('study.currentSubject');
@@ -1005,6 +1591,8 @@ def index() -> str:
       setSidebarOpen(false);
       currentTopicQuestions = [];
       currentQuestionIndex = 0;
+      showingBookmarks = false;
+      sidebarMode = 'topics';
       topicResults.innerHTML = renderEmpty('No topics found for this subject yet.');
       topicQuestions.innerHTML = renderEmpty('No questions yet.');
       selectedTopicLabel.textContent = 'Questions';
@@ -1015,11 +1603,18 @@ def index() -> str:
     }
 
     async function resetDatabase() {
+      if (!(await ensureAdminAccess())) {
+        return;
+      }
       if (!window.confirm('Delete the entire study database and all uploaded files?')) {
         return;
       }
-      const response = await fetch('/api/database/reset', { method: 'POST' });
+      const response = await fetch('/api/database/reset', { method: 'POST', headers: adminHeaders() });
       const payload = await response.json();
+      if (response.status === 403) {
+        adminKey = '';
+        sessionStorage.removeItem('study.adminKey');
+      }
       setStatus(typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2));
       currentSubject = '';
       knownSubjects = [];
@@ -1032,6 +1627,8 @@ def index() -> str:
       setSidebarOpen(false);
       currentTopicQuestions = [];
       currentQuestionIndex = 0;
+      showingBookmarks = false;
+      sidebarMode = 'topics';
       topicResults.innerHTML = renderEmpty('No topics found for this subject yet.');
       topicQuestions.innerHTML = renderEmpty('No questions yet.');
       selectedTopicLabel.textContent = 'Questions';
@@ -1044,6 +1641,7 @@ def index() -> str:
 
     document.getElementById('saveSubjectBtn').addEventListener('click', openSubjectFromInput);
     document.getElementById('uploadBtn').addEventListener('click', uploadFiles);
+    document.getElementById('saveSyllabusBtn').addEventListener('click', saveSyllabus);
     document.getElementById('refreshSubjectBtn').addEventListener('click', loadSubjectOverview);
     document.getElementById('deleteSubjectBtn').addEventListener('click', deleteSubject);
     document.getElementById('resetDbBtn').addEventListener('click', resetDatabase);
@@ -1053,9 +1651,19 @@ def index() -> str:
       syncMode();
     });
     adminModeBtn.addEventListener('click', () => {
-      activeMode = 'admin';
-      localStorage.setItem('study.activeMode', activeMode);
-      syncMode();
+      ensureAdminAccess().then(ok => {
+        if (!ok) {
+          return;
+        }
+        activeMode = 'admin';
+        localStorage.setItem('study.activeMode', activeMode);
+        syncMode();
+      });
+    });
+    themeToggleBtn.addEventListener('click', () => {
+      activeTheme = activeTheme === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('study.theme', activeTheme);
+      syncTheme();
     });
     openSidebarBtn.addEventListener('click', () => setSidebarOpen(true));
     closeSidebarBtn.addEventListener('click', () => setSidebarOpen(false));
@@ -1072,6 +1680,34 @@ def index() -> str:
         renderCurrentQuestion();
       }
     });
+    sidebarTopicsBtn.addEventListener('click', async () => {
+      sidebarMode = 'topics';
+      syncSidebarMode();
+      if (latestSubjectOverview) {
+        topicResults.innerHTML = renderTopicPayload(latestSubjectOverview);
+        topicResults.querySelectorAll('[data-topic]').forEach(button => {
+          button.addEventListener('click', () => loadTopicQuestions(button.dataset.topic));
+        });
+      }
+    });
+    sidebarBookmarksBtn.addEventListener('click', loadBookmarks);
+    topicQuestions.addEventListener('click', event => {
+      const originalButton = event.target.closest('[data-toggle-original]');
+      if (originalButton) {
+        toggleOriginalCurrentQuestion();
+        return;
+      }
+      const bookmarkButton = event.target.closest('[data-bookmark-question]');
+      if (bookmarkButton) {
+        toggleBookmarkCurrentQuestion(bookmarkButton);
+        return;
+      }
+      const button = event.target.closest('[data-copy-question]');
+      if (!button) {
+        return;
+      }
+      copyCurrentQuestion(button);
+    });
     subjectInput.addEventListener('keydown', event => {
       if (event.key === 'Enter') openSubjectFromInput();
       if (event.key === 'Escape') setSidebarOpen(false);
@@ -1079,6 +1715,7 @@ def index() -> str:
 
     renderFiles();
     syncSidebar();
+    syncTheme();
     syncMode();
     updateQuestionNavigation();
     loadStats();
@@ -1088,17 +1725,19 @@ def index() -> str:
   </script>
 </body>
 </html>
-    """
+    """.replace("__ADMIN_PROTECTED__", admin_protected)
 
 
 @app.post("/api/ingest")
 async def api_ingest(
     subject: str = Form(...),
     source_type: str = Form(...),
-    vision_provider: str = Form("claude_cheap"),
+    vision_provider: str = Form("none"),
     ocr_lang: str = Form("eng"),
     files: list[UploadFile] = File(...),
+    x_admin_key: str | None = Header(default=None),
 ) -> JSONResponse:
+    verify_admin(x_admin_key)
     if source_type not in {"pyq", "reference", "handout", "notes", "ppt"}:
         raise HTTPException(status_code=400, detail="Invalid source_type")
     if vision_provider not in {"none", "claude_cheap", "claude"}:
@@ -1131,125 +1770,246 @@ async def api_ingest(
 @app.get("/api/search")
 def api_search(query: str, subject: str | None = None, limit: int = 8) -> dict:
     store = get_store()
-    results = store.search(query, limit=limit, subject=subject)
-    return {
-        "query": query,
-        "subject": subject,
-        "results": [
-            {
-                "subject": item.subject,
-                "document": item.document_name,
-                "page": item.page_number,
-                "score": round(item.score, 4),
-                "topics": canonicalize_topics(item.topics),
-                "path": item.path,
-                "text": item.chunk_text,
-            }
-            for item in results
-        ],
-    }
+    try:
+        results = store.search(query, limit=limit, subject=subject)
+        return {
+            "query": query,
+            "subject": subject,
+            "results": [
+                {
+                    "subject": item.subject,
+                    "document": item.document_name,
+                    "page": item.page_number,
+                    "score": round(item.score, 4),
+                    "topics": canonicalize_topics(item.topics),
+                    "path": item.path,
+                    "text": item.chunk_text,
+                }
+                for item in results
+            ],
+        }
+    finally:
+        store.close()
 
 
 @app.get("/api/questions")
 def api_questions(query: str, subject: str | None = None, limit: int = 10) -> dict:
     store = get_store()
-    rows = store.question_search(query, limit=limit, subject=subject)
-    return {
-        "query": query,
-        "subject": subject,
-        "results": [
-            {
-                "subject": row["subject"],
-                "source_type": row["source_type"],
-                "document": row["name"],
-                "page": row["page_number"],
-                "question_number": row["question_number"],
-                "topics": canonicalize_topics(json.loads(row["topics_json"])),
-                "path": row["path"],
-                "text": row["text"],
-            }
-            for row in rows
-        ],
-    }
+    try:
+        rows = store.question_search(query, limit=limit, subject=subject)
+        return {
+            "query": query,
+            "subject": subject,
+            "results": [question_payload(row) for row in rows],
+        }
+    finally:
+        store.close()
 
 
 @app.get("/api/subject-overview")
 def api_subject_overview(subject: str, question_limit: int = 120, topic_limit: int = 50) -> dict:
     store = get_store()
-    overview = store.subject_overview(subject, question_limit=question_limit, topic_limit=topic_limit)
-    return {
-        "subject": subject,
-        "totals": {
-            "documents": overview["documents"],
-            "chunks": overview["chunks"],
-            "questions": overview["questions"],
-        },
-        "question_topics": [
-            topic
-            for topic in overview["question_topics"]
-        ],
-        "questions": [
-            {
-                "subject": row["subject"],
-                "source_type": row["source_type"],
-                "document": row["name"],
-                "page": row["page_number"],
-                "question_number": row["question_number"],
-                "topics": canonicalize_topics(json.loads(row["topics_json"])),
-                "path": row["path"],
-                "text": row["text"],
-            }
-            for row in overview["question_rows"]
-        ],
-    }
+    try:
+        overview = store.subject_overview(
+            subject,
+            question_limit=question_limit,
+            topic_limit=topic_limit,
+            include_questions=False,
+        )
+        return {
+            "subject": subject,
+            "totals": {
+                "documents": overview["documents"],
+                "chunks": overview["chunks"],
+                "questions": overview["questions"],
+            },
+            "question_topics": [
+                topic
+                for topic in overview["question_topics"]
+            ],
+            "topic_catalog": store.get_subject_topic_catalog(subject),
+            "syllabus_text": store.get_subject_syllabus(subject),
+            "questions": [],
+        }
+    finally:
+        store.close()
 
 
 @app.get("/api/topic-questions")
 def api_topic_questions(subject: str, topic: str, limit: int = 120) -> dict:
     store = get_store()
-    rows = store.questions_for_topic(subject, topic, limit=limit)
-    return {
-        "subject": subject,
-        "topic": topic,
-        "results": [
-            {
-                "subject": row["subject"],
-                "source_type": row["source_type"],
-                "document": row["name"],
-                "page": row["page_number"],
-                "question_number": row["question_number"],
-                "topics": canonicalize_topics(json.loads(row["topics_json"])),
-                "path": row["path"],
-                "text": row["text"],
-            }
-            for row in rows
-        ],
-    }
+    try:
+        rows = store.questions_for_topic(subject, topic, limit=limit)
+        return {
+            "subject": subject,
+            "topic": topic,
+            "results": [
+                {
+                    **question_payload(row),
+                    "bookmarked": store.bookmark_exists(
+                        subject=row["subject"],
+                        document_path=row["path"],
+                        page_number=row["page_number"],
+                        question_number=row["question_number"],
+                        text=row["text"],
+                    ),
+                }
+                for row in rows
+            ],
+        }
+    finally:
+        store.close()
+
+
+@app.get("/api/bookmarks")
+def api_bookmarks(subject: str, limit: int = 200) -> dict:
+    store = get_store()
+    try:
+        rows = store.bookmarks(subject, limit=limit)
+        return {
+            "subject": subject,
+            "results": [
+                {
+                    "subject": row["subject"],
+                    "source_type": row["source_type"],
+                    "document": row["document_name"],
+                    "page": row["page_number"],
+                    "question_number": row["question_number"],
+                    "primary_topic": row["primary_topic"],
+                    "has_diagram": bool(row["has_diagram"]),
+                    "topics": canonicalize_topics(json.loads(row["topics_json"])),
+                    "path": row["document_path"],
+                    "text": row["text"],
+                    "source_pdf_path": row["source_pdf_path"],
+                    "source_pdf_name": row["source_pdf_name"],
+                    "source_pdf_page": row["source_pdf_page"],
+                    "original_image_path": row["original_image_path"],
+                    "diagram_image_path": row["diagram_image_path"],
+                    "original_view_url": asset_url(row["original_image_path"]),
+                    "diagram_url": asset_url(row["diagram_image_path"]),
+                    "link_confidence": row["link_confidence"],
+                    "bookmarked": True,
+                }
+                for row in rows
+            ],
+        }
+    finally:
+        store.close()
+
+
+@app.post("/api/bookmarks")
+def api_add_bookmark(payload: dict) -> dict:
+    store = get_store()
+    try:
+        store.add_bookmark(
+            subject=str(payload.get("subject") or "").strip(),
+            document_path=str(payload.get("path") or ""),
+            document_name=str(payload.get("document") or ""),
+            source_type=str(payload.get("source_type") or "") or None,
+            page_number=int(payload.get("page") or 0),
+            question_number=str(payload.get("question_number")) if payload.get("question_number") is not None else None,
+            text=str(payload.get("text") or ""),
+            primary_topic=str(payload.get("primary_topic") or "") or None,
+            has_diagram=bool(payload.get("has_diagram")),
+            source_pdf_path=str(payload.get("source_pdf_path") or "") or None,
+            source_pdf_name=str(payload.get("source_pdf_name") or "") or None,
+            source_pdf_page=int(payload.get("source_pdf_page")) if payload.get("source_pdf_page") is not None else None,
+            original_image_path=str(payload.get("original_image_path") or "") or None,
+            diagram_image_path=str(payload.get("diagram_image_path") or "") or None,
+            link_confidence=float(payload.get("link_confidence")) if payload.get("link_confidence") is not None else None,
+            topics=[str(item) for item in (payload.get("topics") or [])],
+        )
+        return {"status": "bookmarked"}
+    finally:
+        store.close()
+
+
+@app.delete("/api/bookmarks")
+def api_remove_bookmark(payload: dict) -> dict:
+    store = get_store()
+    try:
+        store.remove_bookmark(
+            subject=str(payload.get("subject") or "").strip(),
+            document_path=str(payload.get("path") or ""),
+            page_number=int(payload.get("page") or 0),
+            question_number=str(payload.get("question_number")) if payload.get("question_number") is not None else None,
+            text=str(payload.get("text") or ""),
+        )
+        return {"status": "removed"}
+    finally:
+        store.close()
 
 
 @app.get("/api/topics")
 def api_topics(subject: str, limit: int = 15) -> dict:
     store = get_store()
-    return {
-        "subject": subject,
-        "topics": [
-            {"topic": topic, "count": count}
-            for topic, count in store.subject_topics(subject, limit=limit)
-        ],
-    }
+    try:
+        return {
+            "subject": subject,
+            "topics": [
+                {"topic": topic, "count": count}
+                for topic, count in store.subject_topics(subject, limit=limit)
+            ],
+            "catalog": store.get_subject_topic_catalog(subject),
+        }
+    finally:
+        store.close()
+
+
+@app.post("/api/syllabus")
+def api_save_syllabus(payload: dict, x_admin_key: str | None = Header(default=None)) -> dict:
+    verify_admin(x_admin_key)
+    subject = str(payload.get("subject") or "").strip()
+    if not subject:
+        raise HTTPException(status_code=400, detail="subject is required")
+    syllabus_text = str(payload.get("syllabus_text") or "")
+    from study_pipeline.topic_classifier import syllabus_topics_from_text
+
+    store = get_store()
+    try:
+        store.set_subject_syllabus(subject, syllabus_text)
+        syllabus_topics = syllabus_topics_from_text(syllabus_text)
+        if syllabus_topics:
+            store.set_subject_topic_catalog(subject, syllabus_topics)
+        return {
+            "subject": subject,
+            "syllabus_text": store.get_subject_syllabus(subject),
+            "topic_catalog": store.get_subject_topic_catalog(subject),
+            "status": "saved",
+        }
+    finally:
+        store.close()
 
 
 @app.get("/api/stats")
 def api_stats() -> dict:
     store = get_store()
-    return {
-        "totals": store.stats(),
-        "subjects": [dict(row) for row in store.subject_stats()],
-    }
+    try:
+        return {
+            "totals": store.stats(),
+            "subjects": [dict(row) for row in store.subject_stats()],
+        }
+    finally:
+        store.close()
+
+
+@app.get("/api/assets/original")
+def api_original_asset(path: str) -> FileResponse:
+    if not path.strip():
+        raise HTTPException(status_code=400, detail="path is required")
+    asset_path = (ORIGINAL_ASSET_ROOT / path).resolve()
+    try:
+        asset_path.relative_to(ORIGINAL_ASSET_ROOT.resolve())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid asset path") from exc
+    if not asset_path.exists():
+        raise HTTPException(status_code=404, detail="asset not found")
+    return FileResponse(asset_path)
 
 
 @app.delete("/api/subjects/{subject}")
-def api_delete_subject(subject: str) -> dict:
+def api_delete_subject(subject: str, x_admin_key: str | None = Header(default=None)) -> dict:
+    verify_admin(x_admin_key)
     subject = subject.strip()
     if not subject:
         raise HTTPException(status_code=400, detail="subject is required")
@@ -1268,13 +2028,15 @@ def api_delete_subject(subject: str) -> dict:
 
 
 @app.post("/api/subjects/delete")
-def api_delete_subject_compat(payload: dict) -> dict:
+def api_delete_subject_compat(payload: dict, x_admin_key: str | None = Header(default=None)) -> dict:
+    verify_admin(x_admin_key)
     subject = str(payload.get("subject") or "").strip()
-    return api_delete_subject(subject)
+    return api_delete_subject(subject, x_admin_key=x_admin_key)
 
 
 @app.post("/api/database/reset")
-def api_reset_database() -> dict:
+def api_reset_database(x_admin_key: str | None = Header(default=None)) -> dict:
+    verify_admin(x_admin_key)
     store = get_store()
     try:
         deleted = store.reset_all()

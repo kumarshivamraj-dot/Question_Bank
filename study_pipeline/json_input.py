@@ -30,6 +30,16 @@ def _question_text(item: dict) -> str:
     return main_text or subparts_text
 
 
+def _truthy_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "diagram"}
+    return False
+
+
 def _iter_questions(payload: object) -> list[tuple[dict, dict | None]]:
     if isinstance(payload, list):
         return [(item, None) for item in payload if isinstance(item, dict)]
@@ -92,6 +102,18 @@ def load_question_json(path: Path) -> tuple[list[PageContent], list[Question]]:
                 question_number=str(question_number) if question_number is not None else None,
                 text=text,
                 topics=topics,
+                primary_topic=str(item.get("primary_topic")).strip() if item.get("primary_topic") else None,
+                has_diagram=_truthy_flag(item.get("has_diagram") or item.get("diagram") or item.get("contains_diagram")),
+                source_pdf_name=str(item.get("source_pdf_name") or item.get("pdf_name") or paper.get("source_pdf_name") or "").strip() or None,
+                source_pdf_page=(
+                    int(
+                        item.get("source_pdf_page")
+                        or item.get("pdf_page")
+                        or item.get("original_page")
+                        or 0
+                    )
+                    or None
+                ),
             )
         )
     return pages, questions
