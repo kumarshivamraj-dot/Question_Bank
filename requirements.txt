@@ -1,12 +1,12 @@
 # PDF Processing Dependencies
 pdf2image==1.17.0           # Converts PDF to images (uses Poppler)
 pytesseract==0.3.10         # Python wrapper for Tesseract OCR
-Pillow==10.2.0              # Image manipulation
-opencv-python==4.9.0.80     # Your preprocessing (cv2)
+Pillow>=11.0.0,<12          # Image manipulation; newer wheels support Python 3.13
+opencv-python>=4.10.0.84    # Newer wheels are safer on Python 3.13
 PyPDF2==3.0.1               # Read PDF metadata (page count)
 PyMuPDF==1.25.3             # Native PDF text extraction + page rendering
 python-pptx==0.6.23         # Extract class PPT/PPTX text
-numpy==1.26.3               # Required by OpenCV
+numpy>=2.1.0,<3             # Required by OpenCV; newer wheels support Python 3.13
 
 # Queue & Messaging
 redis==5.0.1                # Redis client for queue
